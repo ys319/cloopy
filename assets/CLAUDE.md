@@ -37,6 +37,59 @@ Install missing tools via `devbox global add <package>`.
 
 - Format Markdown with `deno fmt`
 
+## Git Commits
+
+Follow [Conventional Commits](https://www.conventionalcommits.org/).
+
+### Format
+
+```
+<type>(<scope>): <description>
+
+[optional body]
+```
+
+- **type**: English, from the table below
+- **scope**: Optional. Area of change (e.g., `cli`, `docker`, `bootstrap`)
+- **description**: Japanese, imperative, concise
+- **body**: Optional. Explain why, not what
+
+### Types
+
+| Type       | When to use                                |
+| ---------- | ------------------------------------------ |
+| `feat`     | New feature                                |
+| `fix`      | Bug fix                                    |
+| `docs`     | Documentation only                         |
+| `refactor` | Code restructuring without behavior change |
+| `test`     | Adding or updating tests                   |
+| `chore`    | Build, deps, config, and other maintenance |
+| `perf`     | Performance improvement                    |
+| `ci`       | CI/CD configuration                        |
+| `style`    | Formatting only (no logic change)          |
+
+### Examples
+
+```
+feat(cli): セットアップウィザードを追加
+
+fix(docker): ヘルスチェックのタイムアウトを修正
+
+docs: README の Quick Start を更新
+
+refactor(bootstrap): Node.js インストールを削除
+
+不要な毎起動処理を除去し、起動時間を短縮。
+```
+
+### Rules
+
+- One commit = one logical change
+- Keep description under ~50 characters
+- Separate body from description with a blank line
+- Mark breaking changes with `!` after type/scope (e.g.,
+  `feat(api)!: レスポンス形式を変更`)
+
 ## Code Quality
 
 Good code is written to be read, not just to run.
