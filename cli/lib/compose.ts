@@ -17,7 +17,11 @@ export function getComposeFiles(projectRoot: string, quiet = false): string[] {
   const localFile = resolve(projectRoot, "docker-compose.local.yml");
   try {
     Deno.statSync(localFile);
-    if (!quiet) console.log("[cloopy] Found docker-compose.local.yml, including in config");
+    if (!quiet) {
+      console.log(
+        "[cloopy] Found docker-compose.local.yml, including in config",
+      );
+    }
     args.push("-f", localFile);
   } catch {
     // No local override
@@ -60,7 +64,9 @@ export function composeSpawn(
 }
 
 /** Get the container ID (if running) */
-export async function getContainerId(projectRoot: string): Promise<string | null> {
+export async function getContainerId(
+  projectRoot: string,
+): Promise<string | null> {
   const files = getComposeFiles(projectRoot, true);
   const cmd = new Deno.Command("docker", {
     args: ["compose", ...files, "ps", "-q"],

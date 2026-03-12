@@ -1,9 +1,9 @@
-import { getProjectRoot, compose } from "../lib/compose.ts";
+import { compose, getProjectRoot } from "../lib/compose.ts";
 import { ensureEnvFile, setEnvVar } from "../lib/env.ts";
-import { ensureKeyPair, pubKeyPath, injectSshConfig } from "../lib/ssh.ts";
-import { Input, Confirm } from "../lib/prompt.ts";
+import { ensureKeyPair, injectSshConfig, pubKeyPath } from "../lib/ssh.ts";
+import { Confirm, Input } from "../lib/prompt.ts";
 import { resolve } from "@std/path";
-import { bold, green, cyan, dim } from "@std/fmt/colors";
+import { bold, cyan, dim, green } from "@std/fmt/colors";
 
 /** このプラットフォームでの ~/.claude のデフォルトパスを返す */
 function defaultClaudeHome(): string {
@@ -32,7 +32,11 @@ function generateLocalCompose(
   if (volumes.length === 0) {
     try {
       Deno.removeSync(localPath);
-      console.log(dim("[cloopy] docker-compose.local.yml を削除しました (オーバーライド不要)"));
+      console.log(
+        dim(
+          "[cloopy] docker-compose.local.yml を削除しました (オーバーライド不要)",
+        ),
+      );
     } catch { /* 存在しなかった */ }
     return;
   }
@@ -80,7 +84,10 @@ export async function setup(): Promise<void> {
   if (Deno.build.os !== "windows") {
     const uid = new Deno.Command("id", { args: ["-u"], stdout: "piped" });
     const gid = new Deno.Command("id", { args: ["-g"], stdout: "piped" });
-    const [uidResult, gidResult] = await Promise.all([uid.output(), gid.output()]);
+    const [uidResult, gidResult] = await Promise.all([
+      uid.output(),
+      gid.output(),
+    ]);
     const uidStr = new TextDecoder().decode(uidResult.stdout).trim();
     const gidStr = new TextDecoder().decode(gidResult.stdout).trim();
     setEnvVar(envPath, "CLOOPY_USER_UID", uidStr, true);
@@ -102,18 +109,29 @@ export async function setup(): Promise<void> {
       return true;
     },
   });
-  if (portInput !== currentPort) setEnvVar(envPath, "CLOOPY_SSH_PORT", portInput);
+  if (portInput !== currentPort) {
+    setEnvVar(envPath, "CLOOPY_SSH_PORT", portInput);
+  }
 
   const currentTz = Deno.env.get("CLOOPY_TIMEZONE") ?? "Asia/Tokyo";
-  const tzInput = await Input.prompt({ message: "タイムゾーン", default: currentTz });
+  const tzInput = await Input.prompt({
+    message: "タイムゾーン",
+    default: currentTz,
+  });
   if (tzInput !== currentTz) setEnvVar(envPath, "CLOOPY_TIMEZONE", tzInput);
 
   const currentWs = Deno.env.get("CLOOPY_HOST_WORKSPACE") ?? "./workspace";
-  const wsInput = await Input.prompt({ message: "ワークスペースパス", default: currentWs });
-  if (wsInput !== currentWs) setEnvVar(envPath, "CLOOPY_HOST_WORKSPACE", wsInput);
+  const wsInput = await Input.prompt({
+    message: "ワークスペースパス",
+    default: currentWs,
+  });
+  if (wsInput !== currentWs) {
+    setEnvVar(envPath, "CLOOPY_HOST_WORKSPACE", wsInput);
+  }
 
   const useVolume = await Confirm.prompt({
-    message: "ワークスペースに Docker ボリュームを使用しますか？ (Windows 推奨)",
+    message:
+      "ワークスペースに Docker ボリュームを使用しますか？ (Windows 推奨)",
     default: false,
   });
   setEnvVar(envPath, "CLOOPY_WORKSPACE_VOLUME", useVolume ? "true" : "false");
@@ -138,7 +156,10 @@ export async function setup(): Promise<void> {
   });
   if (mountClaude) {
     const defaultPath = defaultClaudeHome();
-    claudeHome = await Input.prompt({ message: ".claude のパス", default: defaultPath });
+    claudeHome = await Input.prompt({
+      message: ".claude のパス",
+      default: defaultPath,
+    });
     setEnvVar(envPath, "CLOOPY_CLAUDE_HOME", claudeHome);
   }
 
@@ -161,7 +182,14 @@ export async function setup(): Promise<void> {
   }
 
   console.log("[cloopy] コンテナを起動中...");
-  code = await compose(projectRoot, ["up", "-d", "--wait", "--wait-timeout", "300", "--remove-orphans"]);
+  code = await compose(projectRoot, [
+    "up",
+    "-d",
+    "--wait",
+    "--wait-timeout",
+    "300",
+    "--remove-orphans",
+  ]);
   if (code !== 0) {
     console.error("[cloopy] エラー: コンテナの起動に失敗しました");
     Deno.exit(1);
@@ -174,6 +202,10 @@ export async function setup(): Promise<void> {
   console.log(bold(green("  cloopy の準備ができました！")));
   console.log("");
   console.log(`  SSH:      ${cyan("ssh cloopy")}`);
-  console.log(`  VS Code:  ${cyan("code --remote ssh-remote+cloopy /home/developer/workspace")}`);
+  console.log(
+    `  VS Code:  ${
+      cyan("code --remote ssh-remote+cloopy /home/developer/workspace")
+    }`,
+  );
   console.log("");
 }

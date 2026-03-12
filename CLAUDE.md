@@ -1,12 +1,17 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with
+code in this repository.
 
 ## Project Overview
 
-cloopy は Claude Code 専用のバッテリー付属 Docker コンテナ開発環境。セットアップ一発で VS Code Remote SSH から Claude と開発を始められる。
+cloopy は Claude Code 専用のバッテリー付属 Docker
+コンテナ開発環境。セットアップ一発で VS Code Remote SSH から Claude
+と開発を始められる。
 
-> **注意**: `assets/CLAUDE.md` はコンテナ内で Claude に渡される別ファイル（日本語応答・Devbox 使用の指示）。このファイルとは役割が異なる。
+> **注意**: `assets/CLAUDE.md` はコンテナ内で Claude
+> に渡される別ファイル（日本語応答・Devbox
+> 使用の指示）。このファイルとは役割が異なる。
 
 ## Commands
 
@@ -21,11 +26,14 @@ manage.bat     # Windows
 
 ### CLI（Deno + Cliffy）
 
-`manage.sh` / `manage.bat` → Deno をプロジェクトローカル（`.deno/`）に自動インストール → `cli/main.ts` を実行。
+`manage.sh` / `manage.bat` → Deno
+をプロジェクトローカル（`.deno/`）に自動インストール → `cli/main.ts` を実行。
 
-引数なしの場合 `doctor()` → `setup()` → `manage()` の順に実行される。`doctor` が問題なしと判定すれば `setup` はスキップ。
+引数なしの場合 `doctor()` → `setup()` → `manage()` の順に実行される。`doctor`
+が問題なしと判定すれば `setup` はスキップ。
 
-`cli/lib/compose.ts` は `docker-compose.local.yml` が存在すれば自動で `-f` オプションに追加する。
+`cli/lib/compose.ts` は `docker-compose.local.yml` が存在すれば自動で `-f`
+オプションに追加する。
 
 ### Docker コンテナ（Ubuntu 24.04 + s6-overlay）
 

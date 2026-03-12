@@ -1,8 +1,14 @@
-import { bold, cyan, dim, green, red, yellow } from "@std/fmt/colors"
-import { compose, composeSpawn, getContainerId, getProjectRoot, getStatus } from "../lib/compose.ts"
-import { readEnvFile } from "../lib/env.ts"
-import { Confirm, Select } from "../lib/prompt.ts"
-import { setup } from "./setup.ts"
+import { bold, cyan, dim, green, red, yellow } from "@std/fmt/colors";
+import {
+  compose,
+  composeSpawn,
+  getContainerId,
+  getProjectRoot,
+  getStatus,
+} from "../lib/compose.ts";
+import { readEnvFile } from "../lib/env.ts";
+import { Confirm, Select } from "../lib/prompt.ts";
+import { setup } from "./setup.ts";
 
 function statusColor(status: string): string {
   if (status.includes("running")) return green(status);
@@ -49,7 +55,14 @@ export async function manage(): Promise<void> {
     switch (choice) {
       case "start": {
         console.log("[cloopy] 起動中...");
-        const startCode = await compose(projectRoot, ["up", "-d", "--wait", "--wait-timeout", "300", "--remove-orphans"]);
+        const startCode = await compose(projectRoot, [
+          "up",
+          "-d",
+          "--wait",
+          "--wait-timeout",
+          "300",
+          "--remove-orphans",
+        ]);
         if (startCode !== 0) console.error(red("[cloopy] 起動に失敗しました"));
         break;
       }
@@ -62,7 +75,9 @@ export async function manage(): Promise<void> {
       case "restart": {
         console.log("[cloopy] 再起動中...");
         const restartCode = await compose(projectRoot, ["restart"]);
-        if (restartCode !== 0) console.error(red("[cloopy] 再起動に失敗しました"));
+        if (restartCode !== 0) {
+          console.error(red("[cloopy] 再起動に失敗しました"));
+        }
         break;
       }
       case "logs": {
@@ -71,7 +86,9 @@ export async function manage(): Promise<void> {
           const child = composeSpawn(projectRoot, ["logs", "-f"]);
           const buf = new Uint8Array(64);
           Deno.stdin.readSync(buf);
-          try { child.kill("SIGTERM"); } catch { /* already exited */ }
+          try {
+            child.kill("SIGTERM");
+          } catch { /* already exited */ }
           await child.status;
         } else {
           console.log("[cloopy] ログを追っています... (Ctrl+C で停止)\n");
@@ -121,7 +138,14 @@ export async function manage(): Promise<void> {
         console.log("[cloopy] リビルド中...");
         const buildCode = await compose(projectRoot, ["build"]);
         if (buildCode === 0) {
-          await compose(projectRoot, ["up", "-d", "--wait", "--wait-timeout", "300", "--remove-orphans"]);
+          await compose(projectRoot, [
+            "up",
+            "-d",
+            "--wait",
+            "--wait-timeout",
+            "300",
+            "--remove-orphans",
+          ]);
         } else {
           console.error(red("[cloopy] ビルドに失敗しました"));
         }
@@ -139,7 +163,9 @@ export async function manage(): Promise<void> {
           const label = key.replace("CLOOPY_", "");
           console.log(`  ${cyan(label.padEnd(20))} = ${value}`);
         }
-        if (env.size === 0) console.log(dim("  (.env ファイルが見つかりません)"));
+        if (env.size === 0) {
+          console.log(dim("  (.env ファイルが見つかりません)"));
+        }
         break;
       }
       case "reset": {
@@ -148,7 +174,10 @@ export async function manage(): Promise<void> {
         console.log("    - nix-store (Nix/Devbox)");
         console.log("    - ssh-config (SSH ホスト鍵)");
         console.log("");
-        const sure = await Confirm.prompt({ message: "本当にリセットしますか？", default: false });
+        const sure = await Confirm.prompt({
+          message: "本当にリセットしますか？",
+          default: false,
+        });
         if (sure) {
           console.log("[cloopy] 停止してボリュームを削除中...");
           await compose(projectRoot, ["down", "-v"]);

@@ -15,6 +15,7 @@ manage.bat
 ```
 
 これだけで：
+
 1. SSH鍵を自動生成
 2. Dockerイメージをビルド&起動
 3. SSH Configに`cloopy`エントリを注入
@@ -23,11 +24,11 @@ manage.bat
 
 ## What's Inside
 
-| Tool | Purpose |
-|------|---------|
-| Nix + Devbox | Claudeが必要なツールを自分で入れるための道具箱 |
-| Volta | Node.jsバージョン管理（devbox globalで導入済み） |
-| Zsh (grml) | デフォルトシェル |
+| Tool         | Purpose                                          |
+| ------------ | ------------------------------------------------ |
+| Nix + Devbox | Claudeが必要なツールを自分で入れるための道具箱   |
+| Volta        | Node.jsバージョン管理（devbox globalで導入済み） |
+| Zsh (grml)   | デフォルトシェル                                 |
 
 ## Customization
 
@@ -50,7 +51,8 @@ services:
 
 ## Commands
 
-2回目以降も `./manage.sh`（Windows: `manage.bat`）を実行すると対話メニューが開きます。
+2回目以降も `./manage.sh`（Windows:
+`manage.bat`）を実行すると対話メニューが開きます。
 起動・停止・SSH接続・ログ確認・リビルド・リセット等すべてメニューから操作可能です。
 
 <details>

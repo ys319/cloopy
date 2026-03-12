@@ -1,7 +1,7 @@
-import { getProjectRoot, getComposeFiles, getStatus } from "../lib/compose.ts";
-import { pubKeyPath, keyPath, mainSshConfigPath } from "../lib/ssh.ts";
+import { getComposeFiles, getProjectRoot, getStatus } from "../lib/compose.ts";
+import { keyPath, mainSshConfigPath, pubKeyPath } from "../lib/ssh.ts";
 import { resolve } from "@std/path";
-import { bold, green, red, yellow, dim } from "@std/fmt/colors";
+import { bold, dim, green, red, yellow } from "@std/fmt/colors";
 
 interface CheckResult {
   name: string;
@@ -18,7 +18,11 @@ async function checkDocker(): Promise<CheckResult> {
       stderr: "null",
     });
     const { code } = await cmd.output();
-    return { name: "Docker", ok: code === 0, detail: code === 0 ? "running" : "not responding" };
+    return {
+      name: "Docker",
+      ok: code === 0,
+      detail: code === 0 ? "running" : "not responding",
+    };
   } catch {
     return { name: "Docker", ok: false, detail: "not found" };
   }
@@ -40,7 +44,11 @@ function checkSshConfig(): CheckResult {
     if (content.includes("cloopy")) {
       return { name: "SSH Config", ok: true, detail: "Include present" };
     }
-    return { name: "SSH Config", ok: false, detail: "Include directive missing" };
+    return {
+      name: "SSH Config",
+      ok: false,
+      detail: "Include directive missing",
+    };
   } catch {
     return { name: "SSH Config", ok: false, detail: "~/.ssh/config not found" };
   }
@@ -90,9 +98,16 @@ async function checkContainer(projectRoot: string): Promise<CheckResult> {
   };
 }
 
-async function checkSshConnect(containerRunning: boolean): Promise<CheckResult> {
+async function checkSshConnect(
+  containerRunning: boolean,
+): Promise<CheckResult> {
   if (!containerRunning) {
-    return { name: "SSH Connect", ok: false, detail: "skipped (not running)", info: true };
+    return {
+      name: "SSH Connect",
+      ok: false,
+      detail: "skipped (not running)",
+      info: true,
+    };
   }
   try {
     const cmd = new Deno.Command("ssh", {
@@ -101,9 +116,18 @@ async function checkSshConnect(containerRunning: boolean): Promise<CheckResult> 
       stderr: "null",
     });
     const { code } = await cmd.output();
-    return { name: "SSH Connect", ok: code === 0, detail: code === 0 ? "OK" : "connection failed" };
+    return {
+      name: "SSH Connect",
+      ok: code === 0,
+      detail: code === 0 ? "OK" : "connection failed",
+    };
   } catch {
-    return { name: "SSH Connect", ok: false, detail: "ssh command not found", info: true };
+    return {
+      name: "SSH Connect",
+      ok: false,
+      detail: "ssh command not found",
+      info: true,
+    };
   }
 }
 

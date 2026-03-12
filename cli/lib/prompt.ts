@@ -1,1 +1,1 @@
-export { Input, Confirm, Select } from "@cliffy/prompt";
+export { Confirm, Input, Select } from "@cliffy/prompt";

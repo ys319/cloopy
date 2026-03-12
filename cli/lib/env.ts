@@ -54,7 +54,9 @@ export function ensureEnvFile(projectRoot: string): string {
       Deno.copyFileSync(examplePath, envPath);
       console.log("[cloopy] Created .env from .env.example");
     } catch {
-      console.error("[cloopy] ERROR: .env.example not found. Cannot create .env.");
+      console.error(
+        "[cloopy] ERROR: .env.example not found. Cannot create .env.",
+      );
       Deno.exit(1);
     }
   }
