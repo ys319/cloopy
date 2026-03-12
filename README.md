@@ -26,9 +26,7 @@ manage.bat
 | Tool | Purpose |
 |------|---------|
 | Nix + Devbox | Claudeが必要なツールを自分で入れるための道具箱 |
-| Volta | Node.jsバージョン管理 |
-| Node.js LTS | 起動ごとに最新LTSに自動更新 |
-| PNPM | パッケージマネージャ |
+| Volta | Node.jsバージョン管理（devbox globalで導入済み） |
 | Zsh (grml) | デフォルトシェル |
 
 ## Customization
@@ -78,7 +76,7 @@ SSH → sshd (longrun)
        ↑ depends on
      init-ssh-keys → init-permissions ← base
                           ↓ also depends
-                     svc-bootstrap (Nix/Devbox/Volta/Node/PNPM)
+                     svc-bootstrap (Nix/Devbox/Volta)
                      init-workspace-check
 ```
 

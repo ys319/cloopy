@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ==============================================================================
-# bootstrap: User-Space Setup (Nix + Devbox + Volta + Node + PNPM)
+# bootstrap: User-Space Setup (Nix + Devbox + Volta)
 # ==============================================================================
 # Executed as the developer user via s6-setuidgid.
 # Runs as a oneshot service, independent of sshd - SSH is available
@@ -66,22 +66,6 @@ fi
 if ! devbox global list 2>/dev/null | grep -q volta; then
     echo "[bootstrap] Adding Volta to Devbox global..."
     devbox global add volta
-fi
-
-# Source devbox global shellenv so volta is on PATH
-eval "$(devbox global shellenv --preserve-path-stack -r 2>/dev/null)" || true
-
-# ------------------------------------------------------------------------------
-# 4. Node.js LTS + PNPM via Volta (runs every boot for auto-update)
-# ------------------------------------------------------------------------------
-if command -v volta > /dev/null 2>&1; then
-    echo "[bootstrap] Installing/updating Node.js LTS via Volta..."
-    volta install node@lts || echo "[bootstrap] WARN: volta install node@lts failed"
-
-    echo "[bootstrap] Installing/updating PNPM via Volta..."
-    volta install pnpm || echo "[bootstrap] WARN: volta install pnpm failed"
-else
-    echo "[bootstrap] WARN: Volta not found, skipping Node.js/PNPM setup"
 fi
 
 echo "[bootstrap] Complete"
