@@ -23,6 +23,10 @@ services:
       # Persist Home and Nix
       - home-data:/home/developer
       - nix-store:/nix
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: 8g
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "ss -lnt | grep -q :22 || exit 1"]
