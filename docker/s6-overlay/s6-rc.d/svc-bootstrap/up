@@ -1,0 +1,2 @@
+#!/command/with-contenv /bin/bash
+exec s6-setuidgid developer /etc/s6-overlay/scripts/bootstrap.sh

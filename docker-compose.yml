@@ -1,0 +1,37 @@
+name: cloopy
+
+services:
+  sandbox:
+    build:
+      context: ./docker
+    ports:
+      - "${CLOOPY_SSH_PORT:-10022}:22"
+    environment:
+      - PUID=${CLOOPY_USER_UID:-1000}
+      - PGID=${CLOOPY_USER_GID:-1000}
+      - TZ=${CLOOPY_TIMEZONE:-Asia/Tokyo}
+    volumes:
+      # Authorized public key
+      - ${CLOOPY_PUBKEY_PATH}:/home/developer/.ssh/authorized_keys
+      # Assets
+      - ./assets/CLAUDE.md:/home/developer/.claude/CLAUDE.md
+      - ./assets/.zshenv:/home/developer/.zshenv
+      # Persist SSH Host Keys
+      - ssh-config:/etc/ssh
+      # Default: Bind Mount Workspace
+      - ${CLOOPY_HOST_WORKSPACE:-./workspace}:/home/developer/workspace
+      # Persist Home and Nix
+      - home-data:/home/developer
+      - nix-store:/nix
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "ss -lnt | grep -q :22 || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+      start_period: 3s
+
+volumes:
+  ssh-config:
+  home-data:
+  nix-store:

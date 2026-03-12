@@ -1,0 +1,2 @@
+#!/command/with-contenv /bin/bash
+exec /etc/s6-overlay/scripts/init-workspace-check.sh

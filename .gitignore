@@ -1,0 +1,4 @@
+.env
+.deno/
+workspace/
+docker-compose.local.yml

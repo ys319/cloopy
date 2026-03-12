@@ -1,0 +1,7 @@
+{
+  "imports": {
+    "@cliffy/prompt": "jsr:@cliffy/prompt@^1.0.0",
+    "@std/fmt/colors": "jsr:@std/fmt@^1.0.9/colors",
+    "@std/path": "jsr:@std/path@^1.1.4"
+  }
+}
