@@ -34,10 +34,10 @@ manage.bat
 
 ### docker-compose.local.yml
 
-ローカル固有の設定はこのファイルに書きます（.gitignore対象）。
-テンプレートが同梱されているのでコメントを外して使ってください。
+初回セットアップ時に自動生成されます（.gitignore対象）。
+ローカル固有のオーバーライドを自由に追記できます。
 
-```bash
+```yaml
 # Claude Teamの認証情報をホストから共有する例
 services:
   sandbox:
@@ -47,7 +47,8 @@ services:
 
 ### .env
 
-`.env.example`を`.env`にコピーして編集。すべてオプションです。
+初回セットアップ時に`.env.example`をもとに自動生成されます。
+生成後は手動で編集可能です。すべてオプションです。
 
 ## Commands
 
@@ -74,11 +75,11 @@ docker volume rm cloopy_home-data cloopy_nix-store
 ## Architecture
 
 ```
-SSH → sshd (longrun)
+SSH → svc-sshd (longrun)
        ↑ depends on
      init-ssh-keys → init-permissions ← base
                           ↓ also depends
-                     svc-bootstrap (Nix/Devbox/Volta)
+                     svc-bootstrap (oneshot: Nix/Devbox/Volta)
                      init-workspace-check
 ```
 

@@ -44,7 +44,7 @@ s6-overlay (PID 1)
 ├── init-permissions    (oneshot) UID/GID 調整、ボリューム chown
 ├── init-ssh-keys       (oneshot, depends: init-permissions) authorized_keys 検証、sshd 設定
 ├── init-workspace-check(oneshot, depends: init-permissions) ワークスペース UID 不一致警告
-├── svc-bootstrap       (longrun, depends: init-permissions) Nix/Devbox/Volta/Node LTS/PNPM
+├── svc-bootstrap       (oneshot, depends: init-permissions) Nix/Devbox/Volta
 └── svc-sshd            (longrun, depends: init-ssh-keys) SSH デーモン
 ```
 
