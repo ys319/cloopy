@@ -1,7 +1,12 @@
 @echo off
 setlocal
 
-set "DENO=%~dp0.deno\bin\deno.exe"
+where deno >nul 2>nul
+if %errorlevel% equ 0 (
+    for /f "delims=" %%i in ('where deno') do set "DENO=%%i"
+) else (
+    set "DENO=%~dp0.deno\bin\deno.exe"
+)
 
 if not exist "%DENO%" (
     echo [cloopy] Installing Deno locally...

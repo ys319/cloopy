@@ -1,4 +1,7 @@
 .env
 .deno/
-workspace/
+
+workspace/*
+!workspace/.vscode
+
 docker-compose.local.yml

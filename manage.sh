@@ -2,7 +2,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DENO="$SCRIPT_DIR/.deno/bin/deno"
+if command -v deno > /dev/null 2>&1; then
+    DENO="$(command -v deno)"
+else
+    DENO="$SCRIPT_DIR/.deno/bin/deno"
+fi
 
 if [ ! -f "$DENO" ]; then
     echo "[cloopy] Installing Deno locally..."
