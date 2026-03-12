@@ -49,7 +49,7 @@ export async function manage(): Promise<void> {
     switch (choice) {
       case "start": {
         console.log("[cloopy] 起動中...");
-        const startCode = await compose(projectRoot, ["up", "-d", "--wait", "--remove-orphans"]);
+        const startCode = await compose(projectRoot, ["up", "-d", "--wait", "--wait-timeout", "300", "--remove-orphans"]);
         if (startCode !== 0) console.error(red("[cloopy] 起動に失敗しました"));
         break;
       }
@@ -121,7 +121,7 @@ export async function manage(): Promise<void> {
         console.log("[cloopy] リビルド中...");
         const buildCode = await compose(projectRoot, ["build"]);
         if (buildCode === 0) {
-          await compose(projectRoot, ["up", "-d", "--wait", "--remove-orphans"]);
+          await compose(projectRoot, ["up", "-d", "--wait", "--wait-timeout", "300", "--remove-orphans"]);
         } else {
           console.error(red("[cloopy] ビルドに失敗しました"));
         }

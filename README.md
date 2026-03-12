@@ -50,10 +50,6 @@ services:
 
 `.env.example`を`.env`にコピーして編集。すべてオプションです。
 
-### custom/init.d/
-
-`custom/init.d/*.sh`にスクリプトを置くと、起動時にrootで実行されます。
-
 ## Commands
 
 2回目以降も `./manage.sh`（Windows: `manage.bat`）を実行すると対話メニューが開きます。
@@ -80,10 +76,10 @@ docker volume rm cloopy_home-data cloopy_nix-store
 ```
 SSH → sshd (longrun)
        ↑ depends on
-     init-custom → init-ssh-keys → init-permissions ← base
-                                        ↓ also depends
-                                   svc-bootstrap (Nix/Devbox/Volta/Node/PNPM)
-                                   init-workspace-check
+     init-ssh-keys → init-permissions ← base
+                          ↓ also depends
+                     svc-bootstrap (Nix/Devbox/Volta/Node/PNPM)
+                     init-workspace-check
 ```
 
 sshdとbootstrapは並列実行。SSHはbootstrap完了前に接続可能です。

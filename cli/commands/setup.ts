@@ -161,7 +161,7 @@ export async function setup(): Promise<void> {
   }
 
   console.log("[cloopy] コンテナを起動中...");
-  code = await compose(projectRoot, ["up", "-d", "--wait", "--remove-orphans"]);
+  code = await compose(projectRoot, ["up", "-d", "--wait", "--wait-timeout", "300", "--remove-orphans"]);
   if (code !== 0) {
     console.error("[cloopy] エラー: コンテナの起動に失敗しました");
     Deno.exit(1);

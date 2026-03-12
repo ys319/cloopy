@@ -12,7 +12,12 @@ if not exist "%DENO%" (
     echo [cloopy] Installing Deno locally...
     set "DENO_DIR=%~dp0.deno"
     set "DENO_ZIP=%TEMP%\deno-latest.zip"
-    set "DENO_URL=https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip"
+
+    if "%PROCESSOR_ARCHITECTURE%"=="ARM64" (
+        set "DENO_URL=https://github.com/denoland/deno/releases/latest/download/deno-aarch64-pc-windows-msvc.zip"
+    ) else (
+        set "DENO_URL=https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip"
+    )
 
     powershell -Command "Invoke-WebRequest -Uri '%DENO_URL%' -OutFile '%DENO_ZIP%'"
     if not exist "%~dp0.deno\bin" mkdir "%~dp0.deno\bin"
