@@ -10,6 +10,7 @@ import {
 import { readEnvFile } from "../lib/env.ts";
 import { refreshKnownHosts } from "../lib/ssh.ts";
 import { Confirm, Select } from "../lib/prompt.ts";
+import { doctor } from "./doctor.ts";
 import { setup } from "./setup.ts";
 
 function statusColor(status: string): string {
@@ -46,6 +47,7 @@ export async function manage(): Promise<void> {
         { name: "リビルド", value: "rebuild" },
         { name: "セットアップ (再設定)", value: "setup" },
         { name: "設定を表示", value: "config" },
+        { name: "ヘルスチェック", value: "doctor" },
         { name: "バックアップ", value: "backup" },
         { name: dim("リセット"), value: "reset" },
         SEPARATOR,
@@ -57,6 +59,10 @@ export async function manage(): Promise<void> {
 
     switch (choice) {
       case "start": {
+        if (status.includes("running")) {
+          console.log(yellow("[cloopy] すでに起動しています"));
+          break;
+        }
         console.log("[cloopy] 起動中...");
         const startCode = await compose(projectRoot, [
           "up",
@@ -70,6 +76,10 @@ export async function manage(): Promise<void> {
         break;
       }
       case "stop": {
+        if (status === "not running") {
+          console.log(yellow("[cloopy] すでに停止しています"));
+          break;
+        }
         console.log("[cloopy] 停止中...");
         const stopCode = await compose(projectRoot, ["down"]);
         if (stopCode !== 0) console.error(red("[cloopy] 停止に失敗しました"));
@@ -115,6 +125,10 @@ export async function manage(): Promise<void> {
         break;
       }
       case "ssh": {
+        if (status === "not running") {
+          console.error(red("[cloopy] コンテナが起動していません"));
+          break;
+        }
         console.log("[cloopy] SSH 接続中...");
         const ssh = new Deno.Command("ssh", {
           args: ["cloopy"],
@@ -126,13 +140,25 @@ export async function manage(): Promise<void> {
         break;
       }
       case "vscode": {
+        if (status === "not running") {
+          console.error(red("[cloopy] コンテナが起動していません"));
+          break;
+        }
         console.log("[cloopy] VS Code を起動中...");
-        const code = new Deno.Command("code", {
-          args: ["--remote", "ssh-remote+cloopy", "/home/developer/workspace"],
-          stdout: "inherit",
-          stderr: "inherit",
-        });
-        await code.output();
+        try {
+          const codeCmd = new Deno.Command("code", {
+            args: ["--remote", "ssh-remote+cloopy", "/home/developer/workspace"],
+            stdout: "inherit",
+            stderr: "inherit",
+          });
+          const { code: exitCode } = await codeCmd.output();
+          if (exitCode !== 0) {
+            console.error(red("[cloopy] VS Code の起動に失敗しました"));
+          }
+        } catch {
+          console.error(red("[cloopy] VS Code CLI (code) が見つかりません"));
+          console.error('  インストール: VS Code → コマンドパレット → "Shell Command: Install \'code\' command in PATH"');
+        }
         break;
       }
       case "shell": {
@@ -171,6 +197,10 @@ export async function manage(): Promise<void> {
         }
         break;
       }
+      case "doctor": {
+        await doctor();
+        break;
+      }
       case "setup": {
         await setup();
         break;
@@ -190,10 +220,14 @@ export async function manage(): Promise<void> {
       }
       case "backup": {
         // nix-store は数 GB になるため対象外 (再構築可能)
-        const targets = [
+        const backupEnv = readEnvFile(projectRoot);
+        const targets: { volume: string; file: string }[] = [
           { volume: "cloopy_home-data", file: "home-data.tar.gz" },
           { volume: "cloopy_ssh-config", file: "ssh-config.tar.gz" },
         ];
+        if (backupEnv.get("CLOOPY_WORKSPACE_VOLUME") === "true") {
+          targets.push({ volume: "cloopy_workspace-data", file: "workspace-data.tar.gz" });
+        }
         const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, (c) =>
           c === "T" ? "_" : ""
         );

@@ -14,8 +14,9 @@ AUTHORIZED_KEYS="/home/developer/.ssh/authorized_keys"
 echo "[init-ssh-keys] Checking authorized_keys"
 
 if [[ ! -s "${AUTHORIZED_KEYS}" ]]; then
-    echo "[init-ssh-keys] WARNING: authorized_keys is empty or missing!"
-    echo "[init-ssh-keys]   Ensure ~/.ssh/cloopy/id_ed25519.pub exists on the host."
+    echo "[init-ssh-keys] ERROR: authorized_keys is empty or missing!"
+    echo "[init-ssh-keys]   Run ./manage.sh setup on the host to generate and register the SSH key."
+    exit 1
 else
     # sshd requires strict ownership and permissions on authorized_keys
     chown "${PUID:-1000}:${PGID:-1000}" "${AUTHORIZED_KEYS}"
