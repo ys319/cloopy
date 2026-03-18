@@ -14,7 +14,7 @@ import { doctor } from "./doctor.ts";
 import { setup } from "./setup.ts";
 
 function statusColor(status: string): string {
-  if (status.includes("running")) return green(status);
+  if (status.startsWith("running")) return green(status);
   if (status === "not running") return red(status);
   return yellow(status);
 }
@@ -32,7 +32,7 @@ export async function manage(): Promise<void> {
     console.log(dim("  状態: ") + statusColor(status));
     console.log("");
 
-    const isRunning = status.includes("running");
+    const isRunning = status.startsWith("running");
     const choice = await Select.prompt({
       message: "操作を選択",
       options: [
