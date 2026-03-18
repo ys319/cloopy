@@ -21,6 +21,16 @@ function statusColor(status: string): string {
 
 const SEPARATOR = Select.separator("────────────────────────────");
 
+async function pressAnyKey(): Promise<void> {
+  console.log(dim("\n  何かキーを押すと戻ります..."));
+  Deno.stdin.setRaw(true);
+  try {
+    await Deno.stdin.read(new Uint8Array(1));
+  } finally {
+    Deno.stdin.setRaw(false);
+  }
+}
+
 export async function manage(): Promise<void> {
   const projectRoot = getProjectRoot();
 
@@ -189,6 +199,7 @@ export async function manage(): Promise<void> {
       }
       case "doctor": {
         await doctor();
+        await pressAnyKey();
         break;
       }
       case "setup": {
@@ -206,6 +217,7 @@ export async function manage(): Promise<void> {
         if (env.size === 0) {
           console.log(dim("  (.env ファイルが見つかりません)"));
         }
+        await pressAnyKey();
         break;
       }
       case "backup": {
