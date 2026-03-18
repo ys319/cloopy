@@ -1,4 +1,5 @@
 import { bold, cyan, dim, green, red, yellow } from "@std/fmt/colors";
+import { resolve } from "@std/path";
 import {
   compose,
   composeSpawn,
@@ -45,6 +46,7 @@ export async function manage(): Promise<void> {
         { name: "リビルド", value: "rebuild" },
         { name: "セットアップ (再設定)", value: "setup" },
         { name: "設定を表示", value: "config" },
+        { name: "バックアップ", value: "backup" },
         { name: dim("リセット"), value: "reset" },
         SEPARATOR,
         { name: red("終了"), value: "quit" },
@@ -183,6 +185,47 @@ export async function manage(): Promise<void> {
         }
         if (env.size === 0) {
           console.log(dim("  (.env ファイルが見つかりません)"));
+        }
+        break;
+      }
+      case "backup": {
+        // nix-store は数 GB になるため対象外 (再構築可能)
+        const targets = [
+          { volume: "cloopy_home-data", file: "home-data.tar.gz" },
+          { volume: "cloopy_ssh-config", file: "ssh-config.tar.gz" },
+        ];
+        const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, (c) =>
+          c === "T" ? "_" : ""
+        );
+        const backupDir = resolve(projectRoot, "backups", ts);
+        Deno.mkdirSync(backupDir, { recursive: true });
+        console.log(`[cloopy] バックアップ先: ${backupDir}`);
+        console.log("");
+        let allOk = true;
+        for (const { volume, file } of targets) {
+          console.log(`[cloopy] ${volume} をバックアップ中...`);
+          const cmd = new Deno.Command("docker", {
+            args: [
+              "run", "--rm",
+              "-v", `${volume}:/data:ro`,
+              "-v", `${backupDir}:/backup`,
+              "alpine",
+              "tar", "czf", `/backup/${file}`, "-C", "/data", ".",
+            ],
+            stdout: "inherit",
+            stderr: "inherit",
+          });
+          const { code } = await cmd.output();
+          if (code !== 0) {
+            console.error(red(`[cloopy] ${volume} のバックアップに失敗しました`));
+            allOk = false;
+          } else {
+            console.log(green(`[cloopy] ${file} 完了`));
+          }
+        }
+        if (allOk) {
+          console.log("");
+          console.log(green(`[cloopy] バックアップ完了: ${backupDir}`));
         }
         break;
       }

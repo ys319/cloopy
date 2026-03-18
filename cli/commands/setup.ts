@@ -10,25 +10,14 @@ import { Confirm, Input } from "../lib/prompt.ts";
 import { resolve } from "@std/path";
 import { bold, cyan, dim, green } from "@std/fmt/colors";
 
-/** このプラットフォームでの ~/.claude のデフォルトパスを返す */
-function defaultClaudeHome(): string {
-  if (Deno.build.os === "windows") {
-    return `${Deno.env.get("USERPROFILE")}\\.claude`;
-  }
-  return `${Deno.env.get("HOME")}/.claude`;
-}
-
 /** docker-compose.local.yml を生成する */
 function generateLocalCompose(
   projectRoot: string,
-  options: { claudeHome?: string; workspaceVolume?: boolean },
+  options: { workspaceVolume?: boolean },
 ): void {
   const localPath = resolve(projectRoot, "docker-compose.local.yml");
 
   const volumes: string[] = [];
-  if (options.claudeHome) {
-    volumes.push("      - ${CLOOPY_CLAUDE_HOME}:/home/developer/.claude");
-  }
   if (options.workspaceVolume) {
     volumes.push("      - workspace-data:/home/developer/workspace");
   }
@@ -141,6 +130,8 @@ export async function setup(): Promise<void> {
   });
   setEnvVar(envPath, "CLOOPY_WORKSPACE_VOLUME", useVolume ? "true" : "false");
 
+  // docker-compose.local.yml を生成
+  generateLocalCompose(projectRoot, { workspaceVolume: useVolume });
   console.log("");
 
   // --------------------------------------------------------------------------
@@ -151,34 +142,9 @@ export async function setup(): Promise<void> {
   console.log("");
 
   // --------------------------------------------------------------------------
-  // 4. Claude 設定
+  // 4. ビルド & 起動
   // --------------------------------------------------------------------------
-  console.log(bold("--- ステップ 4: Claude 設定 ---"));
-  let claudeHome: string | undefined;
-  const mountClaude = await Confirm.prompt({
-    message: "ホストの ~/.claude をコンテナにマウントしますか？",
-    default: true,
-  });
-  if (mountClaude) {
-    const defaultPath = defaultClaudeHome();
-    claudeHome = await Input.prompt({
-      message: ".claude のパス",
-      default: defaultPath,
-    });
-    setEnvVar(envPath, "CLOOPY_CLAUDE_HOME", claudeHome);
-  }
-
-  // docker-compose.local.yml を生成
-  generateLocalCompose(projectRoot, {
-    claudeHome,
-    workspaceVolume: useVolume,
-  });
-  console.log("");
-
-  // --------------------------------------------------------------------------
-  // 5. ビルド & 起動
-  // --------------------------------------------------------------------------
-  console.log(bold("--- ステップ 5: ビルド & 起動 ---"));
+  console.log(bold("--- ステップ 4: ビルド & 起動 ---"));
   console.log("[cloopy] イメージをビルド中...");
   let code = await compose(projectRoot, ["build"]);
   if (code !== 0) {
