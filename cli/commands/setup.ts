@@ -1,5 +1,5 @@
 import { compose, getProjectRoot } from "../lib/compose.ts";
-import { ensureEnvFile, setEnvVar } from "../lib/env.ts";
+import { ensureEnvFile, readEnvFile, setEnvVar } from "../lib/env.ts";
 import {
   ensureKeyPair,
   injectSshConfig,
@@ -50,6 +50,34 @@ volumes:
   }
   Deno.writeTextFileSync(localPath, content);
   console.log(green("[cloopy] docker-compose.local.yml を生成しました"));
+}
+
+/**
+ * イメージが未ビルドのとき専用: 対話なしでビルド＆起動する。
+ * .env / SSH 設定は整備済みであることが前提。
+ */
+export async function buildAndStart(): Promise<void> {
+  const projectRoot = getProjectRoot();
+  const env = readEnvFile(projectRoot);
+  const port = env.get("CLOOPY_SSH_PORT") ?? "10022";
+
+  console.log("");
+  console.log(bold("--- コンテナを起動中 ---"));
+  console.log("[cloopy] コンテナを起動中...");
+  const code = await compose(projectRoot, [
+    "up",
+    "-d",
+    "--wait",
+    "--wait-timeout",
+    "300",
+    "--remove-orphans",
+  ]);
+  if (code !== 0) {
+    console.error("[cloopy] エラー: コンテナの起動に失敗しました");
+    Deno.exit(1);
+  }
+  await refreshKnownHosts(port);
+  console.log("");
 }
 
 export async function setup(): Promise<void> {

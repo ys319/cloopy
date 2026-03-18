@@ -1,14 +1,18 @@
 import { doctor } from "./commands/doctor.ts";
 import { manage } from "./commands/manage.ts";
-import { setup } from "./commands/setup.ts";
+import { buildAndStart, setup } from "./commands/setup.ts";
 
 const command = Deno.args[0];
 
 switch (command) {
   case undefined: {
-    const needsSetup = await doctor();
-    if (needsSetup) {
+    const result = await doctor();
+    if (result.needsEnv) {
+      // .env / SSH 鍵 / SSH 設定が未整備 → 対話セットアップ（起動まで含む）
       await setup();
+    } else if (result.needsImage) {
+      // イメージ未ビルドのみ → 対話なしでビルド＆起動
+      await buildAndStart();
     }
     await manage();
     break;

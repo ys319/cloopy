@@ -203,6 +203,11 @@ export async function manage(): Promise<void> {
         break;
       }
       case "setup": {
+        if (isRunning) {
+          console.log("[cloopy] 設定変更のため一度停止します...");
+          await compose(projectRoot, ["down"]);
+          console.log("");
+        }
         await setup();
         break;
       }

@@ -131,10 +131,19 @@ async function checkSshConnect(
   }
 }
 
+export interface DoctorResult {
+  /** いずれかのチェックが失敗している */
+  needsSetup: boolean;
+  /** .env / SSH 鍵 / SSH 設定が未整備 → 対話セットアップが必要 */
+  needsEnv: boolean;
+  /** イメージ未ビルドのみ → ビルド＋起動だけでよい */
+  needsImage: boolean;
+}
+
 /**
- * Run all health checks. Returns true if setup is needed.
+ * Run all health checks. Returns a DoctorResult describing what needs fixing.
  */
-export async function doctor(): Promise<boolean> {
+export async function doctor(): Promise<DoctorResult> {
   console.log(bold("\n[cloopy] Health checks\n"));
 
   const projectRoot = getProjectRoot();
@@ -151,7 +160,8 @@ export async function doctor(): Promise<boolean> {
   results.push(containerResult);
   results.push(await checkSshConnect(containerResult.ok));
 
-  let needsSetup = false;
+  let needsEnv = false;
+  let needsImage = false;
   for (const r of results) {
     let icon: string;
     if (r.ok) {
@@ -160,7 +170,11 @@ export async function doctor(): Promise<boolean> {
       icon = dim("--");
     } else {
       icon = red("!!");
-      needsSetup = true;
+      if (r.name === "Image") {
+        needsImage = true;
+      } else {
+        needsEnv = true;
+      }
     }
     const name = r.name.padEnd(12);
     console.log(`  [${icon}] ${name} ${dim(r.detail)}`);
@@ -168,11 +182,12 @@ export async function doctor(): Promise<boolean> {
 
   console.log("");
 
+  const needsSetup = needsEnv || needsImage;
   if (needsSetup) {
     console.log(yellow("[cloopy] Some checks failed. Setup is required.\n"));
   } else {
     console.log(green("[cloopy] All checks passed.\n"));
   }
 
-  return needsSetup;
+  return { needsSetup, needsEnv, needsImage };
 }
