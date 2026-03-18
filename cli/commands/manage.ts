@@ -27,6 +27,7 @@ export async function manage(): Promise<void> {
   while (true) {
     const status = await getStatus(projectRoot);
 
+    console.clear();
     console.log("");
     console.log(bold(cyan("  cloopy manager")));
     console.log(dim("  状態: ") + statusColor(status));
@@ -35,6 +36,7 @@ export async function manage(): Promise<void> {
     const isRunning = status.startsWith("running");
     const choice = await Select.prompt({
       message: "操作を選択",
+      maxRows: 20,
       options: [
         isRunning
           ? { name: "停止", value: "stop" }
