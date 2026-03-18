@@ -65,6 +65,7 @@ export async function manage(): Promise<void> {
         { name: "設定を表示", value: "config" },
         { name: "ヘルスチェック", value: "doctor" },
         { name: "バックアップ", value: "backup" },
+        { name: "リストア", value: "restore" },
         { name: dim("リセット"), value: "reset" },
         SEPARATOR,
         { name: red("終了"), value: "quit" },
@@ -268,6 +269,125 @@ export async function manage(): Promise<void> {
           console.log("");
           console.log(green(`[cloopy] バックアップ完了: ${backupDir}`));
         }
+        break;
+      }
+      case "restore": {
+        // バックアップ一覧を取得
+        const backupsRoot = resolve(projectRoot, "backups");
+        let backupDirs: string[] = [];
+        try {
+          for (const entry of Deno.readDirSync(backupsRoot)) {
+            if (entry.isDirectory) backupDirs.push(entry.name);
+          }
+        } catch { /* backups/ が存在しない */ }
+        backupDirs = backupDirs.sort().reverse(); // 新しい順
+
+        if (backupDirs.length === 0) {
+          console.log(yellow("[cloopy] バックアップが見つかりません"));
+          await pressAnyKey();
+          break;
+        }
+
+        const selected = await Select.prompt({
+          message: "リストアするバックアップを選択",
+          options: backupDirs.map((d) => ({ name: d, value: d })),
+        });
+        const selectedDir = resolve(backupsRoot, selected);
+
+        // バックアップ内の tar.gz を列挙してボリューム名にマッピング
+        const FILE_TO_VOLUME: Record<string, string> = {
+          "home-data.tar.gz": "cloopy_home-data",
+          "ssh-config.tar.gz": "cloopy_ssh-config",
+          "workspace-data.tar.gz": "cloopy_workspace-data",
+        };
+        const found: { file: string; volume: string }[] = [];
+        for (const [file, volume] of Object.entries(FILE_TO_VOLUME)) {
+          try {
+            Deno.statSync(resolve(selectedDir, file));
+            found.push({ file, volume });
+          } catch { /* ファイルなし */ }
+        }
+
+        if (found.length === 0) {
+          console.error(red("[cloopy] リストア可能なファイルが見つかりません"));
+          await pressAnyKey();
+          break;
+        }
+
+        console.log("");
+        console.log(yellow("  以下のボリュームを削除して復元します:"));
+        for (const { volume } of found) console.log(`    - ${volume}`);
+        console.log("");
+        const sure = await Confirm.prompt({
+          message: "続行しますか？",
+          default: false,
+        });
+        if (!sure) break;
+
+        // コンテナ停止
+        console.log("[cloopy] コンテナを停止中...");
+        await compose(projectRoot, ["down"]);
+        console.log("");
+
+        let allOk = true;
+        for (const { file, volume } of found) {
+          console.log(`[cloopy] ${volume} をリストア中...`);
+
+          // ボリューム削除（存在しない場合はスキップ）
+          await new Deno.Command("docker", {
+            args: ["volume", "rm", volume],
+            stdout: "null",
+            stderr: "null",
+          }).output();
+
+          // ボリューム作成
+          const create = await new Deno.Command("docker", {
+            args: ["volume", "create", volume],
+            stdout: "null",
+            stderr: "inherit",
+          }).output();
+          if (create.code !== 0) {
+            console.error(red(`[cloopy] ${volume} の作成に失敗しました`));
+            allOk = false;
+            continue;
+          }
+
+          // tar.gz から展開
+          const restore = await new Deno.Command("docker", {
+            args: [
+              "run", "--rm",
+              "-v", `${volume}:/data`,
+              "-v", `${selectedDir}:/backup:ro`,
+              "alpine",
+              "tar", "xzf", `/backup/${file}`, "-C", "/data",
+            ],
+            stdout: "inherit",
+            stderr: "inherit",
+          }).output();
+          if (restore.code !== 0) {
+            console.error(red(`[cloopy] ${file} の展開に失敗しました`));
+            allOk = false;
+          } else {
+            console.log(green(`[cloopy] ${volume} 完了`));
+          }
+        }
+
+        if (allOk) {
+          console.log("");
+          console.log("[cloopy] コンテナを起動中...");
+          const upCode = await compose(projectRoot, [
+            "up", "-d", "--wait", "--wait-timeout", "300", "--remove-orphans",
+          ]);
+          if (upCode === 0) {
+            const restoreEnv = readEnvFile(projectRoot);
+            const restorePort = restoreEnv.get("CLOOPY_SSH_PORT") ?? "10022";
+            await refreshKnownHosts(restorePort);
+            console.log(green("[cloopy] リストア完了"));
+          } else {
+            console.error(red("[cloopy] コンテナの起動に失敗しました"));
+          }
+        }
+        await pressAnyKey();
         break;
       }
       case "reset": {
