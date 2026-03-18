@@ -1,6 +1,11 @@
 import { compose, getProjectRoot } from "../lib/compose.ts";
 import { ensureEnvFile, setEnvVar } from "../lib/env.ts";
-import { ensureKeyPair, injectSshConfig, pubKeyPath } from "../lib/ssh.ts";
+import {
+  ensureKeyPair,
+  injectSshConfig,
+  pubKeyPath,
+  refreshKnownHosts,
+} from "../lib/ssh.ts";
 import { Confirm, Input } from "../lib/prompt.ts";
 import { resolve } from "@std/path";
 import { bold, cyan, dim, green } from "@std/fmt/colors";
@@ -194,6 +199,8 @@ export async function setup(): Promise<void> {
     console.error("[cloopy] エラー: コンテナの起動に失敗しました");
     Deno.exit(1);
   }
+
+  await refreshKnownHosts(portInput);
   console.log("");
 
   // --------------------------------------------------------------------------

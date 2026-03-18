@@ -91,12 +91,4 @@ mkdir -p "${USER_HOME}/.ssh"
 chmod 700 "${USER_HOME}/.ssh"
 chown "${PUID}:${PGID}" "${USER_HOME}/.ssh"
 
-# ------------------------------------------------------------------------------
-# 4. Fix .claude mount ownership (bind mount from host)
-# ------------------------------------------------------------------------------
-if [[ -d "${USER_HOME}/.claude" ]]; then
-    echo "[init-permissions] Fixing .claude ownership"
-    chown -R "${PUID}:${PGID}" "${USER_HOME}/.claude"
-fi
-
 echo "[init-permissions] Done"

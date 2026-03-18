@@ -7,6 +7,7 @@ import {
   getStatus,
 } from "../lib/compose.ts";
 import { readEnvFile } from "../lib/env.ts";
+import { refreshKnownHosts } from "../lib/ssh.ts";
 import { Confirm, Select } from "../lib/prompt.ts";
 import { setup } from "./setup.ts";
 
@@ -82,14 +83,28 @@ export async function manage(): Promise<void> {
       }
       case "logs": {
         if (Deno.stdin.isTerminal()) {
-          console.log("[cloopy] ログを追っています... (Enter で停止)\n");
+          console.log("[cloopy] ログを追っています... (ESC / q で戻る)\n");
           const child = composeSpawn(projectRoot, ["logs", "-f"]);
-          const buf = new Uint8Array(64);
-          Deno.stdin.readSync(buf);
+          Deno.stdin.setRaw(true);
           try {
-            child.kill("SIGTERM");
+            const buf = new Uint8Array(1);
+            const waitForKey = async () => {
+              while (true) {
+                const n = await Deno.stdin.read(buf);
+                if (n === null) return;
+                // ESC (0x1b), q (0x71), Ctrl-C (0x03)
+                if (buf[0] === 0x1b || buf[0] === 0x71 || buf[0] === 0x03) return;
+              }
+            };
+            await Promise.race([child.status, waitForKey()]);
+          } finally {
+            Deno.stdin.setRaw(false);
+          }
+          try {
+            child.kill("SIGKILL");
           } catch { /* already exited */ }
           await child.status;
+          console.log("");
         } else {
           console.log("[cloopy] ログを追っています... (Ctrl+C で停止)\n");
           const child = composeSpawn(projectRoot, ["logs", "-f"]);
@@ -146,6 +161,9 @@ export async function manage(): Promise<void> {
             "300",
             "--remove-orphans",
           ]);
+          const env = readEnvFile(projectRoot);
+          const port = env.get("CLOOPY_SSH_PORT") ?? "10022";
+          await refreshKnownHosts(port);
         } else {
           console.error(red("[cloopy] ビルドに失敗しました"));
         }

@@ -28,6 +28,11 @@ export function sshConfigPath(): string {
   return resolve(sshDir(), "config");
 }
 
+/** Get the cloopy known_hosts path (~/.ssh/cloopy/known_hosts) */
+export function knownHostsPath(): string {
+  return resolve(sshDir(), "known_hosts");
+}
+
 /** Get the main SSH config path (~/.ssh/config) */
 export function mainSshConfigPath(): string {
   return resolve(homeDir(), ".ssh", "config");
@@ -83,8 +88,8 @@ Host cloopy
     Port ${port}
     User developer
     IdentityFile ${toSshPath(keyPath())}
-    StrictHostKeyChecking no
-    UserKnownHostsFile /dev/null
+    StrictHostKeyChecking accept-new
+    UserKnownHostsFile ${toSshPath(knownHostsPath())}
 `;
   Deno.writeTextFileSync(sshConfigPath(), configContent);
 
@@ -109,4 +114,30 @@ Host cloopy
   } else {
     console.log("[cloopy] SSH config Include already present, skipping");
   }
+}
+
+/**
+ * Fetch the current host key via ssh-keyscan and overwrite known_hosts.
+ * Call this after container start/rebuild so tools never see a key-changed prompt.
+ */
+export async function refreshKnownHosts(port: string): Promise<void> {
+  console.log("[cloopy] known_hosts を更新中...");
+  const cmd = new Deno.Command("ssh-keyscan", {
+    args: ["-p", port, "-H", "localhost"],
+    stdout: "piped",
+    stderr: "null",
+  });
+  const { code, stdout } = await cmd.output();
+  if (code !== 0) {
+    console.error("[cloopy] ssh-keyscan に失敗しました");
+    return;
+  }
+  const keys = new TextDecoder().decode(stdout).trim();
+  if (!keys) {
+    console.error("[cloopy] ssh-keyscan: キーが取得できませんでした");
+    return;
+  }
+  Deno.mkdirSync(sshDir(), { recursive: true });
+  Deno.writeTextFileSync(knownHostsPath(), keys + "\n");
+  console.log("[cloopy] known_hosts を更新しました");
 }
