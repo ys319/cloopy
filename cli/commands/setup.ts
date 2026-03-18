@@ -142,18 +142,12 @@ export async function setup(): Promise<void> {
   console.log("");
 
   // --------------------------------------------------------------------------
-  // 4. ビルド & 起動
+  // 4. 起動
   // --------------------------------------------------------------------------
-  console.log(bold("--- ステップ 4: ビルド & 起動 ---"));
-  console.log("[cloopy] イメージをビルド中...");
-  let code = await compose(projectRoot, ["build"]);
-  if (code !== 0) {
-    console.error("[cloopy] エラー: ビルドに失敗しました");
-    Deno.exit(1);
-  }
-
+  console.log(bold("--- ステップ 4: 起動 ---"));
   console.log("[cloopy] コンテナを起動中...");
-  code = await compose(projectRoot, [
+  // イメージ未存在の場合は docker compose が自動でビルドする
+  const code = await compose(projectRoot, [
     "up",
     "-d",
     "--wait",
