@@ -1,11 +1,12 @@
 import { resolve } from "@std/path";
 import { dim } from "@std/fmt/colors";
 
-const AUTO_MARKER = "# --- Auto-managed by setup (do not edit manually) ---";
+const BEGIN_MARKER = "# BEGIN cloopy auto-managed";
+const END_MARKER = "# END cloopy auto-managed";
 
 /**
  * Set a key=value in a .env file.
- * If the key is auto-managed, it goes in the auto-managed section at the top.
+ * If the key is auto-managed, it goes inside the BEGIN/END block.
  * Otherwise updates existing or appends.
  */
 export function setEnvVar(
@@ -25,11 +26,11 @@ export function setEnvVar(
   const line = `${key}=${value}`;
 
   if (regex.test(content)) {
-    // Update existing
+    // Update existing (wherever it is)
     content = content.replace(regex, line);
-  } else if (auto && content.includes(AUTO_MARKER)) {
-    // Append right after the marker line
-    content = content.replace(AUTO_MARKER, `${AUTO_MARKER}\n${line}`);
+  } else if (auto && content.includes(END_MARKER)) {
+    // Insert just before the END marker
+    content = content.replace(END_MARKER, `${line}\n${END_MARKER}`);
   } else {
     content = content.trimEnd() + "\n" + line + "\n";
   }
