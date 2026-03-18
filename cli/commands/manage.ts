@@ -32,17 +32,21 @@ export async function manage(): Promise<void> {
     console.log(dim("  状態: ") + statusColor(status));
     console.log("");
 
+    const isRunning = status.includes("running");
     const choice = await Select.prompt({
       message: "操作を選択",
       options: [
-        { name: "起動", value: "start" },
-        { name: "停止", value: "stop" },
-        { name: "再起動", value: "restart" },
-        { name: "ログ確認", value: "logs" },
-        SEPARATOR,
-        { name: "SSH 接続", value: "ssh" },
-        { name: "VS Code で開く", value: "vscode" },
-        { name: "シェル (docker exec)", value: "shell" },
+        isRunning
+          ? { name: "停止", value: "stop" }
+          : { name: "起動", value: "start" },
+        ...(isRunning ? [
+          { name: "再起動", value: "restart" },
+          { name: "ログ確認", value: "logs" },
+          SEPARATOR,
+          { name: "SSH 接続", value: "ssh" },
+          { name: "VS Code で開く", value: "vscode" },
+          { name: "シェル (docker exec)", value: "shell" },
+        ] : []),
         SEPARATOR,
         { name: "リビルド", value: "rebuild" },
         { name: "セットアップ (再設定)", value: "setup" },
@@ -59,10 +63,6 @@ export async function manage(): Promise<void> {
 
     switch (choice) {
       case "start": {
-        if (status.includes("running")) {
-          console.log(yellow("[cloopy] すでに起動しています"));
-          break;
-        }
         console.log("[cloopy] 起動中...");
         const startCode = await compose(projectRoot, [
           "up",
@@ -76,10 +76,6 @@ export async function manage(): Promise<void> {
         break;
       }
       case "stop": {
-        if (status === "not running") {
-          console.log(yellow("[cloopy] すでに停止しています"));
-          break;
-        }
         console.log("[cloopy] 停止中...");
         const stopCode = await compose(projectRoot, ["down"]);
         if (stopCode !== 0) console.error(red("[cloopy] 停止に失敗しました"));
@@ -125,10 +121,6 @@ export async function manage(): Promise<void> {
         break;
       }
       case "ssh": {
-        if (status === "not running") {
-          console.error(red("[cloopy] コンテナが起動していません"));
-          break;
-        }
         console.log("[cloopy] SSH 接続中...");
         const ssh = new Deno.Command("ssh", {
           args: ["cloopy"],
@@ -140,10 +132,6 @@ export async function manage(): Promise<void> {
         break;
       }
       case "vscode": {
-        if (status === "not running") {
-          console.error(red("[cloopy] コンテナが起動していません"));
-          break;
-        }
         console.log("[cloopy] VS Code を起動中...");
         try {
           const codeCmd = new Deno.Command("code", {

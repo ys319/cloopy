@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ==============================================================================
-# bootstrap: User-Space Setup (Nix + Devbox + Volta)
+# bootstrap: User-Space Setup (Nix + Devbox)
 # ==============================================================================
 # Executed as the developer user via s6-setuidgid.
 # Runs as a oneshot service, independent of sshd - SSH is available
@@ -58,14 +58,6 @@ if ! command -v devbox > /dev/null 2>&1; then
     mkdir -p "$HOME/.local/bin"
     curl_retry "https://releases.jetify.com/devbox" -o "$HOME/.local/bin/devbox"
     chmod +x "$HOME/.local/bin/devbox"
-fi
-
-# ------------------------------------------------------------------------------
-# 3. Install Volta via Devbox global (first boot only)
-# ------------------------------------------------------------------------------
-if ! devbox global list 2>/dev/null | grep -q volta; then
-    echo "[bootstrap] Adding Volta to Devbox global..."
-    devbox global add volta
 fi
 
 echo "[bootstrap] Complete"

@@ -32,4 +32,3 @@ if not exist "%DENO%" (
 )
 
 "%DENO%" run --allow-all "%~dp0cli\main.ts" %*
-@pause
