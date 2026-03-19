@@ -57,7 +57,7 @@ export async function manage(): Promise<void> {
           SEPARATOR,
           { name: "SSH 接続", value: "ssh" },
           { name: "VS Code で開く", value: "vscode" },
-          { name: "シェル (docker exec)", value: "shell" },
+          { name: "ルートシェル (docker exec)", value: "shell" },
         ] : []),
         SEPARATOR,
         { name: "リビルド", value: "rebuild" },
@@ -170,7 +170,7 @@ export async function manage(): Promise<void> {
           break;
         }
         const exec = new Deno.Command("docker", {
-          args: ["exec", "-it", "-u", "developer", containerId, "/bin/zsh"],
+          args: ["exec", "-it", "-u", "root", containerId, "/bin/bash"],
           stdin: "inherit",
           stdout: "inherit",
           stderr: "inherit",
