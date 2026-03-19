@@ -1,7 +1,6 @@
 import { resolve } from "@std/path";
 import { dim } from "@std/fmt/colors";
 
-const BEGIN_MARKER = "# BEGIN cloopy auto-managed (do not edit manually)";
 const END_MARKER = "# END cloopy auto-managed";
 
 /**
