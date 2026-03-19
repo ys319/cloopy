@@ -156,7 +156,12 @@ export async function setup(): Promise<void> {
       "ワークスペースに Docker ボリュームを使用しますか？ (Windows 推奨)",
     default: false,
   });
-  setEnvVar(envPath, "CLOOPY_WORKSPACE_VOLUME", useVolume ? "true" : "false", true);
+  setEnvVar(
+    envPath,
+    "CLOOPY_WORKSPACE_VOLUME",
+    useVolume ? "true" : "false",
+    true,
+  );
 
   // docker-compose.local.yml を生成
   generateLocalCompose(projectRoot, { workspaceVolume: useVolume });

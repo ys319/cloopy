@@ -8,8 +8,8 @@ import {
   getStatus,
 } from "../lib/compose.ts";
 import { readEnvFile } from "../lib/env.ts";
-import { refreshKnownHosts } from "../lib/ssh.ts";
 import { Confirm, Select } from "../lib/prompt.ts";
+import { refreshKnownHosts } from "../lib/ssh.ts";
 import { doctor } from "./doctor.ts";
 import { setup } from "./setup.ts";
 
@@ -51,24 +51,26 @@ export async function manage(): Promise<void> {
         isRunning
           ? { name: "停止", value: "stop" }
           : { name: "起動", value: "start" },
-        ...(isRunning ? [
-          { name: "再起動", value: "restart" },
-          { name: "ログ確認", value: "logs" },
-          SEPARATOR,
-          { name: "SSH 接続", value: "ssh" },
-          { name: "VS Code で開く", value: "vscode" },
-          { name: "ルートシェル (docker exec)", value: "shell" },
-        ] : []),
+        ...(isRunning
+          ? [
+            { name: "再起動", value: "restart" },
+            { name: "ログ確認", value: "logs" },
+            SEPARATOR,
+            { name: "SSH 接続", value: "ssh" },
+            { name: "VS Code で開く", value: "vscode" },
+            { name: "管理シェル", value: "shell" },
+          ]
+          : []),
         SEPARATOR,
         { name: "リビルド", value: "rebuild" },
-        { name: "セットアップ (再設定)", value: "setup" },
+        { name: "再設定", value: "setup" },
         { name: "設定を表示", value: "config" },
         { name: "ヘルスチェック", value: "doctor" },
         { name: "バックアップ", value: "backup" },
         { name: "リストア", value: "restore" },
-        { name: dim("リセット"), value: "reset" },
+        { name: red("リセット"), value: "reset" },
         SEPARATOR,
-        { name: red("終了"), value: "quit" },
+        { name: "終了", value: "quit" },
       ],
     });
 
@@ -114,7 +116,9 @@ export async function manage(): Promise<void> {
                 const n = await Deno.stdin.read(buf);
                 if (n === null) return;
                 // ESC (0x1b), q (0x71), Ctrl-C (0x03)
-                if (buf[0] === 0x1b || buf[0] === 0x71 || buf[0] === 0x03) return;
+                if (buf[0] === 0x1b || buf[0] === 0x71 || buf[0] === 0x03) {
+                  return;
+                }
               }
             };
             await Promise.race([child.status, waitForKey()]);
@@ -148,7 +152,11 @@ export async function manage(): Promise<void> {
         console.log("[cloopy] VS Code を起動中...");
         try {
           const codeCmd = new Deno.Command("code", {
-            args: ["--remote", "ssh-remote+cloopy", "/home/developer/workspace"],
+            args: [
+              "--remote",
+              "ssh-remote+cloopy",
+              "/home/developer/workspace",
+            ],
             stdout: "inherit",
             stderr: "inherit",
           });
@@ -158,7 +166,9 @@ export async function manage(): Promise<void> {
           }
         } catch {
           console.error(red("[cloopy] VS Code CLI (code) が見つかりません"));
-          console.error('  インストール: VS Code → コマンドパレット → "Shell Command: Install \'code\' command in PATH"');
+          console.error(
+            "  インストール: VS Code → コマンドパレット → \"Shell Command: Install 'code' command in PATH\"",
+          );
         }
         break;
       }
@@ -234,10 +244,14 @@ export async function manage(): Promise<void> {
           { volume: "cloopy_ssh-config", file: "ssh-config.tar.gz" },
         ];
         if (backupEnv.get("CLOOPY_WORKSPACE_VOLUME") === "true") {
-          targets.push({ volume: "cloopy_workspace-data", file: "workspace-data.tar.gz" });
+          targets.push({
+            volume: "cloopy_workspace-data",
+            file: "workspace-data.tar.gz",
+          });
         }
-        const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, (c) =>
-          c === "T" ? "_" : ""
+        const ts = new Date().toISOString().slice(0, 19).replace(
+          /[T:]/g,
+          (c) => c === "T" ? "_" : "",
         );
         const backupDir = resolve(projectRoot, "backups", ts);
         Deno.mkdirSync(backupDir, { recursive: true });
@@ -248,18 +262,28 @@ export async function manage(): Promise<void> {
           console.log(`[cloopy] ${volume} をバックアップ中...`);
           const cmd = new Deno.Command("docker", {
             args: [
-              "run", "--rm",
-              "-v", `${volume}:/data:ro`,
-              "-v", `${backupDir}:/backup`,
+              "run",
+              "--rm",
+              "-v",
+              `${volume}:/data:ro`,
+              "-v",
+              `${backupDir}:/backup`,
               "alpine",
-              "tar", "czf", `/backup/${file}`, "-C", "/data", ".",
+              "tar",
+              "czf",
+              `/backup/${file}`,
+              "-C",
+              "/data",
+              ".",
             ],
             stdout: "inherit",
             stderr: "inherit",
           });
           const { code } = await cmd.output();
           if (code !== 0) {
-            console.error(red(`[cloopy] ${volume} のバックアップに失敗しました`));
+            console.error(
+              red(`[cloopy] ${volume} のバックアップに失敗しました`),
+            );
             allOk = false;
           } else {
             console.log(green(`[cloopy] ${file} 完了`));
@@ -355,11 +379,18 @@ export async function manage(): Promise<void> {
           // tar.gz から展開
           const restore = await new Deno.Command("docker", {
             args: [
-              "run", "--rm",
-              "-v", `${volume}:/data`,
-              "-v", `${selectedDir}:/backup:ro`,
+              "run",
+              "--rm",
+              "-v",
+              `${volume}:/data`,
+              "-v",
+              `${selectedDir}:/backup:ro`,
               "alpine",
-              "tar", "xzf", `/backup/${file}`, "-C", "/data",
+              "tar",
+              "xzf",
+              `/backup/${file}`,
+              "-C",
+              "/data",
             ],
             stdout: "inherit",
             stderr: "inherit",
@@ -376,7 +407,12 @@ export async function manage(): Promise<void> {
           console.log("");
           console.log("[cloopy] コンテナを起動中...");
           const upCode = await compose(projectRoot, [
-            "up", "-d", "--wait", "--wait-timeout", "300", "--remove-orphans",
+            "up",
+            "-d",
+            "--wait",
+            "--wait-timeout",
+            "300",
+            "--remove-orphans",
           ]);
           if (upCode === 0) {
             const restoreEnv = readEnvFile(projectRoot);
