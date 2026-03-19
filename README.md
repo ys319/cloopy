@@ -35,6 +35,18 @@ manage.bat
 
 あとはVS CodeでRemote SSH → `cloopy`に接続するだけ。
 
+## ツール別ガイド
+
+SSH経由でアクセスできるツールであれば、基本的にそのまま使えます。
+
+### VS Code
+
+左下の `><` ボタン → **Connect to Host...** → `cloopy` を選ぶだけ。
+
+### Claude Desktop
+
+コードアイコン → 接続先（未設定なら `Local` と表示）→ **SSH接続を追加** → 任意の名前を入力、ホスト名に `cloopy` と入力。
+
 ## What's Inside
 
 | Tool         | Purpose                                          |
