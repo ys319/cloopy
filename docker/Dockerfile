@@ -43,10 +43,13 @@ ENV LC_ALL=en_US.UTF-8
 ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz /tmp/
 RUN tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz && rm /tmp/s6-overlay-noarch.tar.xz
 
-# Architecture-specific binary (override with --build-arg for arm64: aarch64)
-ARG S6_OVERLAY_ARCH=x86_64
-ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-${S6_OVERLAY_ARCH}.tar.xz /tmp/
-RUN tar -C / -Jxpf /tmp/s6-overlay-${S6_OVERLAY_ARCH}.tar.xz && rm /tmp/s6-overlay-${S6_OVERLAY_ARCH}.tar.xz
+# Architecture-specific binary (auto-detect from TARGETARCH)
+ARG TARGETARCH
+RUN S6_ARCH=$(case "${TARGETARCH}" in arm64) echo "aarch64";; *) echo "x86_64";; esac) \
+    && wget -q -O /tmp/s6-overlay-arch.tar.xz \
+       "https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-${S6_ARCH}.tar.xz" \
+    && tar -C / -Jxpf /tmp/s6-overlay-arch.tar.xz \
+    && rm /tmp/s6-overlay-arch.tar.xz
 
 # s6-overlay behaviour
 ENV S6_KEEP_ENV=1

@@ -1,0 +1,24 @@
+version: "3"
+
+vars:
+  IMAGE: ys319/cloopy
+  DATE_TAG:
+    sh: date +%Y%m%d
+  PLATFORMS: linux/amd64,linux/arm64
+
+tasks:
+  build:
+    desc: Build image locally (current arch only)
+    cmds:
+      - docker build -t {{.IMAGE}}:latest ./docker
+
+  push:
+    desc: Build multi-arch and push with latest + date tag
+    cmds:
+      - >-
+        docker buildx build
+        --platform {{.PLATFORMS}}
+        -t {{.IMAGE}}:latest
+        -t {{.IMAGE}}:{{.DATE_TAG}}
+        --push
+        ./docker

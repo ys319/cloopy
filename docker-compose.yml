@@ -2,6 +2,7 @@ name: cloopy
 
 services:
   sandbox:
+    image: ys319/cloopy:latest
     build:
       context: ./docker
     ports:
