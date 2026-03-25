@@ -26,7 +26,7 @@ services:
       - nix-store:/nix
     security_opt:
       - no-new-privileges:true
-    pids_limit: 512
+    pids_limit: 16384
     mem_limit: 8g
     restart: unless-stopped
     healthcheck:
