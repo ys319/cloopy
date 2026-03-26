@@ -1,5 +1,5 @@
 # Bin setup
-export PATH="$HOME/.volta/bin:$HOME/.local/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
 
 # Nix setup
 if [ -e /home/developer/.nix-profile/etc/profile.d/nix.sh ]; then . /home/developer/.nix-profile/etc/profile.d/nix.sh; fi # added by Nix installer
