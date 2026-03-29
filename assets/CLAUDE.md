@@ -15,7 +15,9 @@
 - Use **Devbox** for system-level packages: `devbox global add <package>`
 - For project-local packages, use `devbox add` only when the project has a
   `devbox.json`
-- Install missing tools via `devbox global add <package>`
+- If a tool is missing, try installing it via Devbox before considering
+  alternatives. Any package available in Nixpkgs should be managed through
+  Devbox.
 
 ## Tooling Preferences
 
