@@ -1,4 +1,8 @@
-import { compose, getProjectRoot } from "../lib/compose.ts";
+import {
+  checkBootstrapStatus,
+  compose,
+  getProjectRoot,
+} from "../lib/compose.ts";
 import { ensureEnvFile, readEnvFile, setEnvVar } from "../lib/env.ts";
 import {
   ensureKeyPair,
@@ -7,6 +11,13 @@ import {
   refreshKnownHosts,
 } from "../lib/ssh.ts";
 import { Confirm, Input } from "../lib/prompt.ts";
+import {
+  COMPOSE_UP_ARGS,
+  DEFAULT_INSTANCE_NAME,
+  DEFAULT_SSH_PORT,
+  DEFAULT_TIMEZONE,
+  DEFAULT_WORKSPACE,
+} from "../lib/constants.ts";
 import { resolve } from "@std/path";
 import { bold, cyan, dim, green } from "@std/fmt/colors";
 
@@ -59,24 +70,18 @@ volumes:
 export async function buildAndStart(): Promise<void> {
   const projectRoot = getProjectRoot();
   const env = readEnvFile(projectRoot);
-  const port = env.get("CLOOPY_SSH_PORT") ?? "10022";
+  const port = env.get("CLOOPY_SSH_PORT") ?? DEFAULT_SSH_PORT;
 
   console.log("");
   console.log(bold("--- コンテナを起動中 ---"));
   console.log("[cloopy] コンテナを起動中...");
-  const code = await compose(projectRoot, [
-    "up",
-    "-d",
-    "--wait",
-    "--wait-timeout",
-    "300",
-    "--remove-orphans",
-  ]);
+  const code = await compose(projectRoot, [...COMPOSE_UP_ARGS]);
   if (code !== 0) {
     console.error("[cloopy] エラー: コンテナの起動に失敗しました");
     Deno.exit(1);
   }
   await refreshKnownHosts(port);
+  await checkBootstrapStatus(projectRoot);
   console.log("");
 }
 
@@ -119,7 +124,23 @@ export async function setup(): Promise<void> {
   console.log("");
 
   // 対話設定
-  const currentPort = Deno.env.get("CLOOPY_SSH_PORT") ?? "10022";
+  const currentInstance = Deno.env.get("CLOOPY_INSTANCE_NAME") ??
+    DEFAULT_INSTANCE_NAME;
+  const instanceInput = await Input.prompt({
+    message: "インスタンス名 (SSH ホスト名・ボリュームプレフィックス)",
+    default: currentInstance,
+    validate: (v) => {
+      if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(v)) {
+        return "英字で始まり、英数字・ハイフン・アンダースコアのみ使用できます";
+      }
+      return true;
+    },
+  });
+  if (instanceInput !== currentInstance) {
+    setEnvVar(envPath, "CLOOPY_INSTANCE_NAME", instanceInput);
+  }
+
+  const currentPort = Deno.env.get("CLOOPY_SSH_PORT") ?? DEFAULT_SSH_PORT;
   const portInput = await Input.prompt({
     message: "SSH ポート",
     default: currentPort,
@@ -135,14 +156,22 @@ export async function setup(): Promise<void> {
     setEnvVar(envPath, "CLOOPY_SSH_PORT", portInput);
   }
 
-  const currentTz = Deno.env.get("CLOOPY_TIMEZONE") ?? "Asia/Tokyo";
+  const currentTz = Deno.env.get("CLOOPY_TIMEZONE") ?? DEFAULT_TIMEZONE;
   const tzInput = await Input.prompt({
     message: "タイムゾーン",
     default: currentTz,
+    validate: (v) => {
+      try {
+        Intl.DateTimeFormat(undefined, { timeZone: v });
+        return true;
+      } catch {
+        return "無効なタイムゾーンです (例: Asia/Tokyo, UTC)";
+      }
+    },
   });
   if (tzInput !== currentTz) setEnvVar(envPath, "CLOOPY_TIMEZONE", tzInput);
 
-  const currentWs = Deno.env.get("CLOOPY_HOST_WORKSPACE") ?? "./workspace";
+  const currentWs = Deno.env.get("CLOOPY_HOST_WORKSPACE") ?? DEFAULT_WORKSPACE;
   const wsInput = await Input.prompt({
     message: "ワークスペースパス",
     default: currentWs,
@@ -171,7 +200,7 @@ export async function setup(): Promise<void> {
   // 3. SSH 設定
   // --------------------------------------------------------------------------
   console.log(bold("--- ステップ 3: SSH 設定 ---"));
-  injectSshConfig(portInput);
+  injectSshConfig(portInput, instanceInput);
   console.log("");
 
   // --------------------------------------------------------------------------
@@ -180,20 +209,14 @@ export async function setup(): Promise<void> {
   console.log(bold("--- ステップ 4: 起動 ---"));
   console.log("[cloopy] コンテナを起動中...");
   // イメージ未存在の場合は docker compose が自動でビルドする
-  const code = await compose(projectRoot, [
-    "up",
-    "-d",
-    "--wait",
-    "--wait-timeout",
-    "300",
-    "--remove-orphans",
-  ]);
+  const code = await compose(projectRoot, [...COMPOSE_UP_ARGS]);
   if (code !== 0) {
     console.error("[cloopy] エラー: コンテナの起動に失敗しました");
     Deno.exit(1);
   }
 
   await refreshKnownHosts(portInput);
+  await checkBootstrapStatus(projectRoot);
   console.log("");
 
   // --------------------------------------------------------------------------
@@ -201,10 +224,12 @@ export async function setup(): Promise<void> {
   // --------------------------------------------------------------------------
   console.log(bold(green("  cloopy の準備ができました！")));
   console.log("");
-  console.log(`  SSH:      ${cyan("ssh cloopy")}`);
+  console.log(`  SSH:      ${cyan(`ssh ${instanceInput}`)}`);
   console.log(
     `  VS Code:  ${
-      cyan("code --remote ssh-remote+cloopy /home/developer/workspace")
+      cyan(
+        `code --remote ssh-remote+${instanceInput} /home/developer/workspace`,
+      )
     }`,
   );
   console.log("");

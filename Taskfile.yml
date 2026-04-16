@@ -22,3 +22,24 @@ tasks:
         -t {{.IMAGE}}:{{.DATE_TAG}}
         --push
         ./docker
+
+  lint:
+    desc: Run linter and format check
+    dir: cli
+    cmds:
+      - deno lint
+      - deno fmt --check
+
+  test:
+    desc: Run unit tests
+    dir: cli
+    cmds:
+      - deno test --allow-read --allow-write --allow-env
+
+  check:
+    desc: Run lint + fmt + test
+    dir: cli
+    cmds:
+      - deno lint
+      - deno fmt --check
+      - deno test --allow-read --allow-write --allow-env

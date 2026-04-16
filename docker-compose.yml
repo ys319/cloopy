@@ -1,4 +1,4 @@
-name: cloopy
+name: ${CLOOPY_INSTANCE_NAME:-cloopy}
 
 services:
   sandbox:

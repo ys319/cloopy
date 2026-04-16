@@ -7,6 +7,10 @@ const END_MARKER = "# END cloopy auto-managed";
  * Set a key=value in a .env file.
  * If the key is auto-managed, it goes inside the BEGIN/END block.
  * Otherwise updates existing or appends.
+ * @param filePath Absolute path to the .env file
+ * @param key Environment variable name
+ * @param value Environment variable value
+ * @param auto If true, insert into the auto-managed block (between BEGIN/END markers)
  */
 export function setEnvVar(
   filePath: string,
@@ -40,7 +44,8 @@ export function setEnvVar(
 
 /**
  * Ensure .env exists by copying from .env.example if needed.
- * Returns the path to the .env file.
+ * @param projectRoot Absolute path to the project root
+ * @returns Absolute path to the .env file
  */
 export function ensureEnvFile(projectRoot: string): string {
   const envPath = resolve(projectRoot, ".env");
@@ -66,6 +71,9 @@ export function ensureEnvFile(projectRoot: string): string {
 
 /**
  * Read all key=value pairs from .env into a Map.
+ * Comments and blank lines are skipped. Returns an empty map if .env is missing.
+ * @param projectRoot Absolute path to the project root
+ * @returns Map of environment variable name to value
  */
 export function readEnvFile(projectRoot: string): Map<string, string> {
   const envPath = resolve(projectRoot, ".env");
@@ -80,6 +88,10 @@ export function readEnvFile(projectRoot: string): Map<string, string> {
         map.set(trimmed.slice(0, eqIdx), trimmed.slice(eqIdx + 1));
       }
     }
-  } catch { /* no .env */ }
+  } catch (e) {
+    if (!(e instanceof Deno.errors.NotFound)) {
+      console.error(`[cloopy] .env の読み込みに失敗: ${e}`);
+    }
+  }
   return map;
 }

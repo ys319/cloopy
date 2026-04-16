@@ -1,5 +1,10 @@
 FROM ubuntu:24.04
 
+LABEL org.opencontainers.image.title="cloopy" \
+      org.opencontainers.image.description="Battery-included Docker sandbox for Claude Code" \
+      org.opencontainers.image.source="https://github.com/ys319/cloopy" \
+      org.opencontainers.image.licenses="MIT"
+
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -28,8 +33,11 @@ RUN : Install dependencies \
         ca-certificates \
         zsh \
         iproute2 \
-    && rm -rf /var/lib/apt/lists/* \
-    && wget -O /etc/zsh/zshrc https://git.grml.org/f/grml-etc-core/etc/zsh/zshrc
+    && rm -rf /var/lib/apt/lists/*
+
+# grml zshrc (vendored to avoid network dependency at build time)
+# Update: docker/vendor/update-grml-zshrc.sh
+COPY vendor/grml-zshrc /etc/zsh/zshrc
 
 # Generate locales
 RUN locale-gen en_US.UTF-8

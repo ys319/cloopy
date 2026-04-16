@@ -26,7 +26,7 @@ if [ ! -f "$DENO" ]; then
     TMP_ZIP="$(mktemp)"
     trap 'rm -f "$TMP_ZIP"' EXIT
 
-    curl -fsSL "$URL" -o "$TMP_ZIP"
+    curl -fsSL --retry 3 --retry-delay 2 "$URL" -o "$TMP_ZIP"
     mkdir -p "$SCRIPT_DIR/.deno/bin"
     unzip -o -q "$TMP_ZIP" -d "$SCRIPT_DIR/.deno/bin"
     chmod +x "$DENO"

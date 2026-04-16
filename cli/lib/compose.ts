@@ -1,4 +1,5 @@
 import { resolve } from "@std/path";
+import { yellow } from "@std/fmt/colors";
 
 /** Resolve the project root (parent of cli/) */
 export function getProjectRoot(): string {
@@ -11,7 +12,12 @@ export function getProjectRoot(): string {
   return resolve(normalized, "..", "..");
 }
 
-/** Build the compose file arguments, auto-detecting docker-compose.local.yml */
+/**
+ * Build the compose file arguments, auto-detecting docker-compose.local.yml.
+ * @param projectRoot Absolute path to the project root
+ * @param quiet Suppress log output when local override is found
+ * @returns Array of `-f <path>` arguments for docker compose
+ */
 export function getComposeFiles(projectRoot: string, quiet = false): string[] {
   const args = ["-f", resolve(projectRoot, "docker-compose.yml")];
   const localFile = resolve(projectRoot, "docker-compose.local.yml");
@@ -23,13 +29,21 @@ export function getComposeFiles(projectRoot: string, quiet = false): string[] {
       );
     }
     args.push("-f", localFile);
-  } catch {
-    // No local override
+  } catch (e) {
+    if (!(e instanceof Deno.errors.NotFound)) {
+      console.error(`[cloopy] docker-compose.local.yml の確認に失敗: ${e}`);
+    }
   }
   return args;
 }
 
-/** Run a docker compose command. Returns the exit code. */
+/**
+ * Run a docker compose command and wait for completion.
+ * @param projectRoot Absolute path to the project root
+ * @param subArgs Arguments passed after `docker compose -f ...`
+ * @param options Set `inherit: true` to pipe stdin from the terminal
+ * @returns Exit code of the docker compose process
+ */
 export async function compose(
   projectRoot: string,
   subArgs: string[],
@@ -47,7 +61,12 @@ export async function compose(
   return code;
 }
 
-/** Spawn a docker compose command, returning the child process. */
+/**
+ * Spawn a docker compose command without waiting for completion.
+ * @param projectRoot Absolute path to the project root
+ * @param subArgs Arguments passed after `docker compose -f ...`
+ * @returns The spawned child process
+ */
 export function composeSpawn(
   projectRoot: string,
   subArgs: string[],
@@ -63,7 +82,11 @@ export function composeSpawn(
   return cmd.spawn();
 }
 
-/** Get the container ID (if running) */
+/**
+ * Get the running container ID for the cloopy service.
+ * @param projectRoot Absolute path to the project root
+ * @returns Container ID string, or null if not running
+ */
 export async function getContainerId(
   projectRoot: string,
 ): Promise<string | null> {
@@ -80,7 +103,45 @@ export async function getContainerId(
   return id || null;
 }
 
-/** Get container status as a simple string */
+/**
+ * Check container logs for bootstrap status after startup.
+ * Warns if bootstrap failed or is still running.
+ */
+export async function checkBootstrapStatus(
+  projectRoot: string,
+): Promise<void> {
+  const files = getComposeFiles(projectRoot, true);
+  const cmd = new Deno.Command("docker", {
+    args: ["compose", ...files, "logs", "--tail", "200"],
+    cwd: projectRoot,
+    stdout: "piped",
+    stderr: "piped",
+  });
+  const { stdout } = await cmd.output();
+  const logs = new TextDecoder().decode(stdout);
+
+  if (logs.includes("[bootstrap] ERROR:")) {
+    console.log(
+      yellow(
+        "[cloopy] bootstrap でエラーが発生しています。「ログ確認」で詳細を確認してください",
+      ),
+    );
+  } else if (logs.includes("[bootstrap] Complete")) {
+    // bootstrap completed successfully — no message needed
+  } else if (logs.includes("[bootstrap] Starting")) {
+    console.log(
+      yellow(
+        "[cloopy] bootstrap がまだ実行中です。完了まで数分かかる場合があります",
+      ),
+    );
+  }
+}
+
+/**
+ * Get container status as a human-readable string (e.g. "running (Up 5 minutes)").
+ * @param projectRoot Absolute path to the project root
+ * @returns Status string, or "not running" if the container is down
+ */
 export async function getStatus(projectRoot: string): Promise<string> {
   const files = getComposeFiles(projectRoot, true);
   const cmd = new Deno.Command("docker", {

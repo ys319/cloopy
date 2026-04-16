@@ -1,5 +1,7 @@
 import { getComposeFiles, getProjectRoot, getStatus } from "../lib/compose.ts";
+import { readEnvFile } from "../lib/env.ts";
 import { keyPath, mainSshConfigPath, pubKeyPath } from "../lib/ssh.ts";
+import { DEFAULT_INSTANCE_NAME } from "../lib/constants.ts";
 import { resolve } from "@std/path";
 import { bold, dim, green, red, yellow } from "@std/fmt/colors";
 
@@ -23,8 +25,11 @@ async function checkDocker(): Promise<CheckResult> {
       ok: code === 0,
       detail: code === 0 ? "running" : "not responding",
     };
-  } catch {
-    return { name: "Docker", ok: false, detail: "not found" };
+  } catch (e) {
+    if (e instanceof Deno.errors.NotFound) {
+      return { name: "Docker", ok: false, detail: "not found" };
+    }
+    return { name: "Docker", ok: false, detail: String(e) };
   }
 }
 
@@ -33,8 +38,11 @@ function checkSshKey(): CheckResult {
     Deno.statSync(keyPath());
     Deno.statSync(pubKeyPath());
     return { name: "SSH Key", ok: true, detail: keyPath() };
-  } catch {
-    return { name: "SSH Key", ok: false, detail: "not found" };
+  } catch (e) {
+    if (e instanceof Deno.errors.NotFound) {
+      return { name: "SSH Key", ok: false, detail: "not found" };
+    }
+    return { name: "SSH Key", ok: false, detail: String(e) };
   }
 }
 
@@ -49,8 +57,15 @@ function checkSshConfig(): CheckResult {
       ok: false,
       detail: "Include directive missing",
     };
-  } catch {
-    return { name: "SSH Config", ok: false, detail: "~/.ssh/config not found" };
+  } catch (e) {
+    if (e instanceof Deno.errors.NotFound) {
+      return {
+        name: "SSH Config",
+        ok: false,
+        detail: "~/.ssh/config not found",
+      };
+    }
+    return { name: "SSH Config", ok: false, detail: String(e) };
   }
 }
 
@@ -63,8 +78,11 @@ function checkEnvFile(): CheckResult {
       return { name: ".env", ok: false, detail: "CLOOPY_PUBKEY_PATH not set" };
     }
     return { name: ".env", ok: true, detail: "configured" };
-  } catch {
-    return { name: ".env", ok: false, detail: "not found" };
+  } catch (e) {
+    if (e instanceof Deno.errors.NotFound) {
+      return { name: ".env", ok: false, detail: "not found" };
+    }
+    return { name: ".env", ok: false, detail: String(e) };
   }
 }
 
@@ -83,8 +101,11 @@ async function checkImage(projectRoot: string): Promise<CheckResult> {
       return { name: "Image", ok: true, detail: "built" };
     }
     return { name: "Image", ok: false, detail: "not built" };
-  } catch {
-    return { name: "Image", ok: false, detail: "check failed" };
+  } catch (e) {
+    if (e instanceof Deno.errors.NotFound) {
+      return { name: "Image", ok: false, detail: "docker not found" };
+    }
+    return { name: "Image", ok: false, detail: `check failed: ${e}` };
   }
 }
 
@@ -100,6 +121,7 @@ async function checkContainer(projectRoot: string): Promise<CheckResult> {
 
 async function checkSshConnect(
   containerRunning: boolean,
+  instanceName: string,
 ): Promise<CheckResult> {
   if (!containerRunning) {
     return {
@@ -111,7 +133,14 @@ async function checkSshConnect(
   }
   try {
     const cmd = new Deno.Command("ssh", {
-      args: ["-o", "ConnectTimeout=3", "-o", "BatchMode=yes", "cloopy", "exit"],
+      args: [
+        "-o",
+        "ConnectTimeout=3",
+        "-o",
+        "BatchMode=yes",
+        instanceName,
+        "exit",
+      ],
       stdout: "null",
       stderr: "null",
     });
@@ -121,11 +150,19 @@ async function checkSshConnect(
       ok: code === 0,
       detail: code === 0 ? "OK" : "connection failed",
     };
-  } catch {
+  } catch (e) {
+    if (e instanceof Deno.errors.NotFound) {
+      return {
+        name: "SSH Connect",
+        ok: false,
+        detail: "ssh command not found",
+        info: true,
+      };
+    }
     return {
       name: "SSH Connect",
       ok: false,
-      detail: "ssh command not found",
+      detail: String(e),
       info: true,
     };
   }
@@ -141,12 +178,16 @@ export interface DoctorResult {
 }
 
 /**
- * Run all health checks. Returns a DoctorResult describing what needs fixing.
+ * Run all health checks and print results to console.
+ * @returns DoctorResult indicating which setup steps are needed
  */
 export async function doctor(): Promise<DoctorResult> {
   console.log(bold("\n[cloopy] Health checks\n"));
 
   const projectRoot = getProjectRoot();
+  const envMap = readEnvFile(projectRoot);
+  const instanceName = envMap.get("CLOOPY_INSTANCE_NAME") ??
+    DEFAULT_INSTANCE_NAME;
 
   const results: CheckResult[] = [
     await checkDocker(),
@@ -158,7 +199,7 @@ export async function doctor(): Promise<DoctorResult> {
 
   const containerResult = await checkContainer(projectRoot);
   results.push(containerResult);
-  results.push(await checkSshConnect(containerResult.ok));
+  results.push(await checkSshConnect(containerResult.ok, instanceName));
 
   let needsEnv = false;
   let needsImage = false;
