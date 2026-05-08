@@ -1,0 +1,42 @@
+# Default egress allowlist for cloopy.
+# Lines starting with '#' or blank lines are ignored.
+# Add user-specific domains via CLOOPY_EXTRA_DOMAINS in .env (comma-separated).
+
+# --- Anthropic / Claude Code -------------------------------------------------
+api.anthropic.com
+statsig.anthropic.com
+sentry.io
+console.anthropic.com
+claude.ai
+
+# --- GitHub ------------------------------------------------------------------
+github.com
+api.github.com
+codeload.github.com
+objects.githubusercontent.com
+raw.githubusercontent.com
+ghcr.io
+
+# --- Package registries ------------------------------------------------------
+registry.npmjs.org
+pypi.org
+files.pythonhosted.org
+crates.io
+static.crates.io
+index.crates.io
+proxy.golang.org
+sum.golang.org
+
+# --- Nix / Devbox (cloopy bootstrap) -----------------------------------------
+nixos.org
+cache.nixos.org
+channels.nixos.org
+releases.nixos.org
+nix-community.cachix.org
+releases.jetify.com
+get.jetpack.io
+
+# --- Ubuntu apt --------------------------------------------------------------
+archive.ubuntu.com
+security.ubuntu.com
+ports.ubuntu.com

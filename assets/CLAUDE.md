@@ -10,6 +10,41 @@
 - IDE: VS Code Remote SSH
 - Workspace: `/home/developer/workspace` — place projects here
 
+## Network Egress
+
+This container runs behind a default-deny egress firewall (iptables + ipset).
+Only a curated allowlist of domains (Anthropic, GitHub, npm/PyPI/crates/Go,
+Nix/Devbox, Ubuntu apt) is reachable. The following are **always blocked**,
+even when the firewall is set to `off`:
+
+- Cloud metadata services (`169.254.169.254`, Alibaba `100.100.100.200`)
+- RFC1918 private ranges (`10/8`, `172.16/12`, `192.168/16`)
+- CGNAT / Tailscale (`100.64.0.0/10`)
+- All IPv6 outbound
+
+If a network operation fails (timeout, connection refused, DNS unresolved for
+an IP), **assume the firewall blocked it**. This is by design — it limits
+exfiltration and metadata-service abuse from compromised packages or runaway
+agents.
+
+**Do not attempt to bypass the firewall.** Specifically, do not:
+
+- Edit iptables / ip6tables / ipset rules (even though `NET_ADMIN` is granted)
+- Disable services under `/etc/s6-overlay/s6-rc.d/init-firewall` or
+  `svc-firewall-refresh`
+- Route traffic through alternative resolvers, DoH endpoints, or proxies to
+  reach blocked hosts
+- Suggest workarounds like `curl --resolve`, `/etc/hosts` injection, or
+  tunneling
+
+**To legitimately allow a new domain**, tell the user. They will add it to
+`CLOOPY_EXTRA_DOMAINS` in `.env` on the host and restart the container.
+This intentionally requires a host-side action — runtime mutation by the
+agent is not supported.
+
+If a task genuinely requires a blocked destination, stop and report it.
+Do not improvise around it.
+
 ## Package Management
 
 - Use **Devbox** for system-level packages: `devbox global add <package>`

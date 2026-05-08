@@ -18,6 +18,7 @@ ARG S6_OVERLAY_VERSION=3.2.0.2
 # - git, curl, wget: Basics
 # - xz-utils: Required for Nix and s6-overlay
 # - locales, tzdata: Localization
+# - iptables, ipset: Egress firewall (init-firewall)
 # ==============================================================================
 RUN : Install dependencies \
     && apt-get update \
@@ -33,6 +34,9 @@ RUN : Install dependencies \
         ca-certificates \
         zsh \
         iproute2 \
+        iptables \
+        ipset \
+        dnsutils \
     && rm -rf /var/lib/apt/lists/*
 
 # grml zshrc (vendored to avoid network dependency at build time)
@@ -84,7 +88,12 @@ RUN : \
     && useradd --uid 1000 --gid 1000 -m -s /bin/zsh developer
 
 # ==============================================================================
-# 5. s6-overlay Files
+# 5. Firewall Allowlist
+# ==============================================================================
+COPY firewall/ /etc/cloopy/firewall/
+
+# ==============================================================================
+# 6. s6-overlay Files
 # ==============================================================================
 COPY s6-overlay/ /etc/s6-overlay/
 

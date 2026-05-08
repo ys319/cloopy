@@ -11,6 +11,8 @@ services:
       - PUID=${CLOOPY_USER_UID:-1000}
       - PGID=${CLOOPY_USER_GID:-1000}
       - TZ=${CLOOPY_TIMEZONE:-Asia/Tokyo}
+      - CLOOPY_FIREWALL=${CLOOPY_FIREWALL:-on}
+      - CLOOPY_EXTRA_DOMAINS=${CLOOPY_EXTRA_DOMAINS:-}
     volumes:
       # Authorized public key
       - ${CLOOPY_PUBKEY_PATH}:/home/developer/.ssh/authorized_keys
@@ -26,6 +28,8 @@ services:
       - nix-store:/nix
     security_opt:
       - no-new-privileges:true
+    cap_add:
+      - NET_ADMIN
     pids_limit: 16384
     mem_limit: 8g
     restart: unless-stopped
