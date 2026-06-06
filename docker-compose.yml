@@ -11,6 +11,8 @@ services:
       - PUID=${CLOOPY_USER_UID:-1000}
       - PGID=${CLOOPY_USER_GID:-1000}
       - TZ=${CLOOPY_TIMEZONE:-Asia/Tokyo}
+      # Egress firewall (on: block metadata/private networks, off: kill switch)
+      - CLOOPY_FIREWALL=${CLOOPY_FIREWALL:-on}
     volumes:
       # Authorized public key
       - ${CLOOPY_PUBKEY_PATH}:/home/developer/.ssh/authorized_keys
@@ -24,6 +26,11 @@ services:
       # Persist Home and Nix
       - home-data:/home/developer
       - nix-store:/nix
+    # NET_ADMIN lets init-firewall manage iptables inside the container.
+    # Coexists with no-new-privileges. Remove this to fully disable the
+    # firewall (the script then fails open and warns).
+    cap_add:
+      - NET_ADMIN
     security_opt:
       - no-new-privileges:true
     pids_limit: 16384

@@ -18,6 +18,7 @@ ARG S6_OVERLAY_VERSION=3.2.0.2
 # - git, curl, wget: Basics
 # - xz-utils: Required for Nix and s6-overlay
 # - locales, tzdata: Localization
+# - iptables: egress firewall (init-firewall, provides ip6tables too)
 # ==============================================================================
 RUN : Install dependencies \
     && apt-get update \
@@ -33,6 +34,7 @@ RUN : Install dependencies \
         ca-certificates \
         zsh \
         iproute2 \
+        iptables \
     && rm -rf /var/lib/apt/lists/*
 
 # grml zshrc (vendored to avoid network dependency at build time)
