@@ -19,25 +19,38 @@ echo "[init-permissions] Target UID/GID: ${PUID}:${PGID}"
 # ------------------------------------------------------------------------------
 # 1. Adjust UID/GID of the container user
 # ------------------------------------------------------------------------------
+# IMPORTANT: we rewrite /etc/passwd directly instead of using `usermod -u`.
+# `usermod -u` has a documented side effect — it recursively re-chowns the
+# entire home directory tree — and because the image always boots as 1000:1000,
+# that traversal would run on EVERY boot (minutes on a large /home, e.g. a
+# populated Nix profile), blocking init-ssh-keys → svc-sshd and making SSH
+# unavailable for the duration. File ownership is handled separately below via
+# the marker-optimized `chown -R`, so usermod's traversal is pure waste.
 CURRENT_UID=$(id -u "${USER_NAME}")
 CURRENT_GID=$(id -g "${USER_NAME}")
 
 if [[ "$PUID" != "$CURRENT_UID" || "$PGID" != "$CURRENT_GID" ]]; then
     echo "[init-permissions] Updating ${USER_NAME} from ${CURRENT_UID}:${CURRENT_GID} to ${PUID}:${PGID}"
 
-    # Adjust GID
+    # If PGID has no group yet, repoint the 'developer' group to it. groupmod
+    # does NOT traverse the filesystem (man: "you may have to change the GID of
+    # files ... by hand"), so it is fast. If a group already owns PGID, the
+    # passwd edit below just references it by number.
     if [[ "$PGID" != "$CURRENT_GID" ]]; then
         EXISTING_GROUP=$(getent group "$PGID" | cut -d: -f1 || true)
         if [[ -n "$EXISTING_GROUP" ]]; then
             echo "[init-permissions] GID ${PGID} exists as '${EXISTING_GROUP}', reusing"
-            usermod -g "$EXISTING_GROUP" "${USER_NAME}"
         else
             groupmod -o -g "$PGID" "${USER_NAME}"
         fi
     fi
 
-    # Adjust UID
-    if [[ "$PUID" != "$CURRENT_UID" ]]; then
+    # Fast UID/GID change: rewrite the uid:gid fields of the developer line.
+    # Fall back to usermod only if the line is not in the expected format.
+    if grep -qE "^${USER_NAME}:[^:]*:[0-9]+:[0-9]+:" /etc/passwd; then
+        sed -i -E "s|^(${USER_NAME}:[^:]*:)[0-9]+:[0-9]+:|\1${PUID}:${PGID}:|" /etc/passwd
+    else
+        echo "[init-permissions] WARN: unexpected /etc/passwd line, falling back to usermod (slow)"
         usermod -o -u "$PUID" "${USER_NAME}"
     fi
 fi
