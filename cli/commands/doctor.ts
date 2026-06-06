@@ -1,4 +1,9 @@
-import { getComposeFiles, getProjectRoot, getStatus } from "../lib/compose.ts";
+import {
+  getComposeFiles,
+  getContainerId,
+  getProjectRoot,
+  getStatus,
+} from "../lib/compose.ts";
 import { readEnvFile } from "../lib/env.ts";
 import { keyPath, mainSshConfigPath, pubKeyPath } from "../lib/ssh.ts";
 import { DEFAULT_INSTANCE_NAME } from "../lib/constants.ts";
@@ -86,18 +91,75 @@ function checkEnvFile(): CheckResult {
   }
 }
 
-async function checkImage(projectRoot: string): Promise<CheckResult> {
+/** Resolve the image refs this compose project would use (version-safe). */
+async function resolveImageRefs(
+  projectRoot: string,
+  files: string[],
+): Promise<string[]> {
+  // `docker compose config --images` prints one resolved image ref per line.
+  // Available on modern Compose v2; if it fails (old version / parse error /
+  // empty), fall back to the stable, hard-coded tag from docker-compose.yml.
   try {
-    const files = getComposeFiles(projectRoot, true);
     const cmd = new Deno.Command("docker", {
-      args: ["compose", ...files, "images", "-q"],
+      args: ["compose", ...files, "config", "--images"],
       cwd: projectRoot,
       stdout: "piped",
-      stderr: "piped",
+      stderr: "null",
     });
     const { code, stdout } = await cmd.output();
-    const output = new TextDecoder().decode(stdout).trim();
-    if (code === 0 && output) {
+    if (code === 0) {
+      const refs = new TextDecoder()
+        .decode(stdout)
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0);
+      if (refs.length > 0) return refs;
+    }
+  } catch (e) {
+    if (e instanceof Deno.errors.NotFound) throw e; // docker missing → bubble up
+    // any other failure → fall through to the hard-coded ref
+  }
+  return ["ys319/cloopy:latest"];
+}
+
+/** True if `docker image inspect <ref>` succeeds (image exists locally). */
+async function imageExists(ref: string): Promise<boolean> {
+  const cmd = new Deno.Command("docker", {
+    args: ["image", "inspect", ref],
+    stdout: "null",
+    stderr: "null",
+  });
+  const { code } = await cmd.output();
+  return code === 0;
+}
+
+/**
+ * Report whether the project's image is available locally.
+ *
+ * We deliberately do NOT use `docker compose images -q`: on Compose versions
+ * where a service declares both `image:` and `build:`, its per-container
+ * image-inspect step can emit empty output (exit 0) for a perfectly healthy,
+ * running container — indistinguishable from a genuine "not built". Instead we
+ * use a positive check: the image is "built" if EITHER
+ *   (a) a container for the project is running — it cannot run without an
+ *       image, so the image necessarily exists; OR
+ *   (b) every compose-resolved image ref passes `docker image inspect`.
+ * "not built" (→ needsImage → buildAndStart) is returned only when there is no
+ * running container AND a referenced image is missing, so a genuine first run
+ * still builds while a healthy stack is never needlessly rebuilt.
+ */
+async function checkImage(projectRoot: string): Promise<CheckResult> {
+  try {
+    // (a) A running container proves the image exists.
+    if (await getContainerId(projectRoot)) {
+      return { name: "Image", ok: true, detail: "built (in use)" };
+    }
+
+    // (b) Direct, tag-keyed presence check on every resolved ref.
+    const files = getComposeFiles(projectRoot, true);
+    const refs = await resolveImageRefs(projectRoot, files);
+    const present = await Promise.all(refs.map(imageExists));
+    if (present.every((ok) => ok)) {
       return { name: "Image", ok: true, detail: "built" };
     }
     return { name: "Image", ok: false, detail: "not built" };
