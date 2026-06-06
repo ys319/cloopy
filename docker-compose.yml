@@ -13,6 +13,26 @@ services:
       - TZ=${CLOOPY_TIMEZONE:-Asia/Tokyo}
       # Egress firewall (on: block metadata/private networks, off: kill switch)
       - CLOOPY_FIREWALL=${CLOOPY_FIREWALL:-on}
+      # Allow the container to reach the Docker host (host.docker.internal).
+      - CLOOPY_ALLOW_HOST=${CLOOPY_ALLOW_HOST:-on}
+      # Filtering DNS resolver pinned by the firewall (malware/phishing blocking
+      # at name resolution). Default: Cloudflare for Families (1.1.1.2). The
+      # firewall blocks :53 to anything else. See .env.example for presets.
+      - CLOOPY_DNS_PRIMARY=${CLOOPY_DNS_PRIMARY:-1.1.1.2}
+      - CLOOPY_DNS_SECONDARY=${CLOOPY_DNS_SECONDARY:-1.0.0.2}
+      - CLOOPY_DNS_V6_PRIMARY=${CLOOPY_DNS_V6_PRIMARY:-2606:4700:4700::1112}
+      - CLOOPY_DNS_V6_SECONDARY=${CLOOPY_DNS_V6_SECONDARY:-2606:4700:4700::1002}
+    # Point the container's resolver at the filtering DNS above. On a Compose
+    # network this sets the upstream for Docker's embedded DNS (127.0.0.11);
+    # the firewall then pins :53 to these IPs so it cannot be bypassed.
+    dns:
+      - ${CLOOPY_DNS_PRIMARY:-1.1.1.2}
+      - ${CLOOPY_DNS_SECONDARY:-1.0.0.2}
+    # Make host.docker.internal resolve on Linux too (Docker Desktop already
+    # provides it). The firewall ACCEPTs this single IP while the rest of the
+    # host's private range stays blocked.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # Authorized public key
       - ${CLOOPY_PUBKEY_PATH}:/home/developer/.ssh/authorized_keys

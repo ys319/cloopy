@@ -1,26 +1,33 @@
 #!/bin/bash
 # ==============================================================================
-# init-firewall: Egress Network Isolation (Phase 1 — Local Blocking)
+# init-firewall: Egress Network Isolation (private-block + filtering DNS)
 # ==============================================================================
-# Blocks the container from reaching cloud metadata services and private
-# (RFC 1918 / CGN / link-local) networks. This is the "must-have" layer:
-# it stops IMDS credential theft and lateral movement into the host LAN,
-# while leaving public internet egress untouched.
+# Restricts the container's outbound traffic. Two always-on layers:
+#   1. Local blocking — DROP egress to cloud metadata services and private
+#      (RFC 1918 / CGN / link-local) networks. Stops IMDS credential theft and
+#      lateral movement into the host LAN. Public internet egress stays open.
+#   2. DNS pinning — force name resolution through a configurable malware-
+#      filtering resolver (default Cloudflare for Families 1.1.1.2) and DROP
+#      :53 to everything else, so known-malicious domains are blocked at
+#      resolution and a process cannot switch to an unfiltered resolver.
+# The Docker host (host.docker.internal) is exempted from layer 1 so host
+# services stay reachable (CLOOPY_ALLOW_HOST=on).
 #
 # Design notes (see also CLAUDE.md / README threat model):
 #   - Only the OUTPUT chain is touched. INPUT is left alone so inbound SSH
 #     is never affected.
-#   - The default OUTPUT policy stays ACCEPT. We do NOT deny-all here — that
-#     (allowlist) is a later phase. Phase 1 only adds targeted DROP rules.
-#   - ACCEPT exceptions come *before* the DROP rules so SSH return traffic
-#     and name resolution keep working:
+#   - The default OUTPUT policy stays ACCEPT — this is NOT a deny-all allowlist
+#     (intentionally dropped as too much for cloopy). We add targeted rules in
+#     a dedicated CLOOPY-OUT chain.
+#   - ACCEPT exceptions come *before* the DROP rules so SSH return traffic and
+#     name resolution keep working:
 #       * loopback (Docker embedded DNS 127.0.0.11)
 #       * ESTABLISHED,RELATED (return traffic for any tracked connection)
 #       * tcp --sport 22 (sshd replies — belt-and-suspenders so inbound SSH
 #         survives even if conntrack/ESTABLISHED is unavailable; SSH replies
 #         target the private docker gateway and would otherwise be DROPped)
-#       * DNS(53) ONLY to the resolvers in /etc/resolv.conf (so DNS works even
-#         when the resolver is a private IP, without opening :53 to all hosts)
+#       * host.docker.internal (the Docker host gateway)
+#       * DNS(53) ONLY to the filtering resolver(s); all other :53 is DROPped
 #   - Fail-open: if iptables can't be managed (e.g. NET_ADMIN missing) we
 #     warn loudly and exit 0 rather than killing the container. Losing the
 #     firewall must never lock the user out of cloopy.
@@ -30,6 +37,20 @@
 # ==============================================================================
 
 FIREWALL_MODE="${CLOOPY_FIREWALL:-on}"
+
+# Allow reaching the Docker host (host.docker.internal). Default on.
+ALLOW_HOST="${CLOOPY_ALLOW_HOST:-on}"
+
+# Filtering DNS resolver(s) to pin :53 to. When set, name resolution is forced
+# through these IPs only (see apply_v4/apply_v6) and all other :53 is dropped.
+# Defaults are injected by docker-compose; if unset, DNS degrades gracefully to
+# resolv.conf-scoped behavior (no :53 DROP) so resolution never breaks.
+DNS_V4=()
+[ -n "${CLOOPY_DNS_PRIMARY:-}" ]      && DNS_V4+=("${CLOOPY_DNS_PRIMARY}")
+[ -n "${CLOOPY_DNS_SECONDARY:-}" ]    && DNS_V4+=("${CLOOPY_DNS_SECONDARY}")
+DNS_V6=()
+[ -n "${CLOOPY_DNS_V6_PRIMARY:-}" ]   && DNS_V6+=("${CLOOPY_DNS_V6_PRIMARY}")
+[ -n "${CLOOPY_DNS_V6_SECONDARY:-}" ] && DNS_V6+=("${CLOOPY_DNS_V6_SECONDARY}")
 
 log() { echo "[init-firewall] $*"; }
 
@@ -47,10 +68,10 @@ teardown_one() {
 # ------------------------------------------------------------------------------
 # Kill switch
 # ------------------------------------------------------------------------------
-# NOTE: in this phase CLOOPY_FIREWALL=off disables local blocking too, acting
-# as a full kill switch. This prioritizes guaranteed connectivity. When the
-# egress allowlist lands in a later phase, local blocking becomes always-on
-# and this flag will gate only the allowlist.
+# NOTE: CLOOPY_FIREWALL=off disables everything (local blocking AND the DNS
+# pin) and tears down any existing CLOOPY-OUT rules, acting as a full kill
+# switch. This prioritizes guaranteed connectivity — losing the firewall must
+# never lock the user out of cloopy.
 if [ "$FIREWALL_MODE" = "off" ]; then
     log "CLOOPY_FIREWALL=off — egress filtering disabled (removing any existing rules)"
     teardown_one "iptables -w 5"
@@ -100,6 +121,22 @@ resolvers_v4() { _resolvers v4; }
 resolvers_v6() { _resolvers v6; }
 
 # ------------------------------------------------------------------------------
+# Docker host (host.docker.internal) IPs, split by address family. Resolved via
+# /etc/hosts (populated by `extra_hosts: host.docker.internal:host-gateway`).
+# getent consults files before DNS, so this works at boot before our resolver
+# is configured. Empty on hosts where the name is not defined.
+# ------------------------------------------------------------------------------
+_host_ips() {
+    local want="$1" ip _rest
+    getent hosts host.docker.internal 2>/dev/null | while read -r ip _rest; do
+        case "$ip" in
+            *:*) [ "$want" = v6 ] && echo "$ip" ;;  # IPv6
+            *)   [ "$want" = v4 ] && echo "$ip" ;;  # IPv4
+        esac
+    done | sort -u
+}
+
+# ------------------------------------------------------------------------------
 # IPv4 rules
 # ------------------------------------------------------------------------------
 apply_v4() {
@@ -121,18 +158,46 @@ apply_v4() {
     # SSH reply fallback: survives even if the conntrack match is unavailable.
     $ipt -A CLOOPY-OUT -p tcp --sport 22 -j ACCEPT
 
-    # DNS only to the configured resolver(s); fallback to any if none parsed
-    # (DNS would be broken regardless in that degenerate case).
-    local r resolvers; resolvers=$(resolvers_v4)
-    if [ -n "$resolvers" ]; then
-        for r in $resolvers; do
-            $ipt -A CLOOPY-OUT -d "$r" -p udp --dport 53 -j ACCEPT
-            $ipt -A CLOOPY-OUT -d "$r" -p tcp --dport 53 -j ACCEPT
+    # Allow the Docker host (host.docker.internal). It resolves to a private IP
+    # that the DROP rules below would otherwise block, so ACCEPT it up front.
+    # Gated by CLOOPY_ALLOW_HOST (default on).
+    if [ "$ALLOW_HOST" = "on" ]; then
+        local h
+        for h in $(_host_ips v4); do
+            $ipt -A CLOOPY-OUT -d "$h" -j ACCEPT
+            log "allow host.docker.internal -> $h (IPv4)"
         done
+    fi
+
+    # DNS pinning: force name resolution through the configured filtering
+    # resolver(s) only, and DROP :53 to everything else, so a process cannot
+    # switch to an unfiltered resolver (e.g. 8.8.8.8) and bypass the malware
+    # filter. Loopback (Docker embedded DNS 127.0.0.11) is already accepted via
+    # -o lo above; it forwards upstream to these same IPs.
+    if [ ${#DNS_V4[@]} -gt 0 ]; then
+        local d
+        for d in "${DNS_V4[@]}"; do
+            $ipt -A CLOOPY-OUT -d "$d" -p udp --dport 53 -j ACCEPT
+            $ipt -A CLOOPY-OUT -d "$d" -p tcp --dport 53 -j ACCEPT
+        done
+        $ipt -A CLOOPY-OUT -p udp --dport 53 -j DROP
+        $ipt -A CLOOPY-OUT -p tcp --dport 53 -j DROP
+        log "DNS pinned to filtering resolver(s): ${DNS_V4[*]}"
     else
-        log "WARN: no IPv4 nameserver in /etc/resolv.conf; allowing DNS to any (fallback)"
-        $ipt -A CLOOPY-OUT -p udp --dport 53 -j ACCEPT
-        $ipt -A CLOOPY-OUT -p tcp --dport 53 -j ACCEPT
+        # No filtering resolver configured: fall back to the original behavior —
+        # scope :53 ACCEPT to /etc/resolv.conf resolvers and do NOT drop other
+        # :53 (so DNS keeps working even in this degenerate case).
+        local r resolvers; resolvers=$(resolvers_v4)
+        if [ -n "$resolvers" ]; then
+            for r in $resolvers; do
+                $ipt -A CLOOPY-OUT -d "$r" -p udp --dport 53 -j ACCEPT
+                $ipt -A CLOOPY-OUT -d "$r" -p tcp --dport 53 -j ACCEPT
+            done
+        else
+            log "WARN: no IPv4 nameserver in /etc/resolv.conf; allowing DNS to any (fallback)"
+            $ipt -A CLOOPY-OUT -p udp --dport 53 -j ACCEPT
+            $ipt -A CLOOPY-OUT -p tcp --dport 53 -j ACCEPT
+        fi
     fi
 
     # --- DROP metadata / private ranges (new outbound connections) ---
@@ -173,13 +238,35 @@ apply_v6() {
     $ipt -A CLOOPY-OUT -p ipv6-icmp -j ACCEPT
     $ipt -A CLOOPY-OUT -p tcp --sport 22 -j ACCEPT
 
-    # DNS only to configured IPv6 resolver(s). No fallback: if there is no IPv6
-    # nameserver, IPv6 DNS is simply not used (resolution goes over IPv4).
-    local r resolvers; resolvers=$(resolvers_v6)
-    for r in $resolvers; do
-        $ipt -A CLOOPY-OUT -d "$r" -p udp --dport 53 -j ACCEPT
-        $ipt -A CLOOPY-OUT -d "$r" -p tcp --dport 53 -j ACCEPT
-    done
+    # Allow the Docker host over IPv6 (host.docker.internal), gated by
+    # CLOOPY_ALLOW_HOST.
+    if [ "$ALLOW_HOST" = "on" ]; then
+        local h
+        for h in $(_host_ips v6); do
+            $ipt -A CLOOPY-OUT -d "$h" -j ACCEPT
+            log "allow host.docker.internal -> $h (IPv6)"
+        done
+    fi
+
+    # DNS pinning over IPv6 (same rationale as IPv4). If no IPv6 filtering
+    # resolver is configured, fall back to resolv.conf-scoped :53 ACCEPT without
+    # a blanket :53 DROP (IPv6 DNS, if any, keeps working).
+    if [ ${#DNS_V6[@]} -gt 0 ]; then
+        local d
+        for d in "${DNS_V6[@]}"; do
+            $ipt -A CLOOPY-OUT -d "$d" -p udp --dport 53 -j ACCEPT
+            $ipt -A CLOOPY-OUT -d "$d" -p tcp --dport 53 -j ACCEPT
+        done
+        $ipt -A CLOOPY-OUT -p udp --dport 53 -j DROP
+        $ipt -A CLOOPY-OUT -p tcp --dport 53 -j DROP
+        log "IPv6 DNS pinned to filtering resolver(s): ${DNS_V6[*]}"
+    else
+        local r resolvers; resolvers=$(resolvers_v6)
+        for r in $resolvers; do
+            $ipt -A CLOOPY-OUT -d "$r" -p udp --dport 53 -j ACCEPT
+            $ipt -A CLOOPY-OUT -d "$r" -p tcp --dport 53 -j ACCEPT
+        done
+    fi
 
     local net
     for net in "${DROP_V6[@]}"; do
@@ -198,7 +285,7 @@ apply_v6() {
 # Main
 # ------------------------------------------------------------------------------
 SECONDS=0
-log "Applying egress local blocking (metadata + private networks)"
+log "Applying egress filtering (metadata/private blocking + DNS pinning)"
 log "iptables: $(iptables -V 2>/dev/null || echo unknown)"
 
 apply_v4 || true
