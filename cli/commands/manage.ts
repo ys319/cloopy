@@ -8,16 +8,17 @@ import {
   getProjectRoot,
   getStatus,
 } from "../lib/compose.ts";
-import { readEnvFile } from "../lib/env.ts";
-import { Confirm, Select } from "../lib/prompt.ts";
-import { refreshKnownHosts } from "../lib/ssh.ts";
 import {
   COMPOSE_UP_ARGS,
   DEFAULT_INSTANCE_NAME,
   DEFAULT_SSH_PORT,
 } from "../lib/constants.ts";
+import { readEnvFile } from "../lib/env.ts";
+import { Confirm, Select } from "../lib/prompt.ts";
 import { startTimer } from "../lib/spinner.ts";
+import { injectSshConfig, refreshKnownHosts } from "../lib/ssh.ts";
 import { doctor } from "./doctor.ts";
+import { editSettings } from "./settings.ts";
 import { setup } from "./setup.ts";
 
 function statusColor(status: string): string {
@@ -57,22 +58,25 @@ export async function manage(): Promise<void> {
       message: "操作を選択",
       maxRows: 20,
       options: [
-        isRunning
-          ? { name: "停止", value: "stop" }
-          : { name: "起動", value: "start" },
-        ...(isRunning
-          ? [
-            { name: "再起動", value: "restart" },
-            { name: "ログ確認", value: "logs" },
-            SEPARATOR,
-            { name: "SSH 接続", value: "ssh" },
-            { name: "VS Code で開く", value: "vscode" },
-            { name: "管理シェル", value: "shell" },
-          ]
-          : []),
+        ...(
+          isRunning
+            ? [
+              { name: "停止", value: "stop" },
+              { name: "再起動", value: "restart" },
+              { name: "ログ確認", value: "logs" },
+              SEPARATOR,
+              { name: "SSH 接続", value: "ssh" },
+              { name: "VS Code で開く", value: "vscode" },
+              { name: "管理シェル", value: "shell" },
+            ]
+            : [
+              { name: "起動", value: "start" },
+            ]
+        ),
         SEPARATOR,
         { name: "リビルド", value: "rebuild" },
         { name: "再設定", value: "setup" },
+        { name: "設定変更", value: "settings" },
         { name: "設定を表示", value: "config" },
         { name: "ヘルスチェック", value: "doctor" },
         { name: "バックアップ", value: "backup" },
@@ -221,6 +225,41 @@ export async function manage(): Promise<void> {
           console.log("");
         }
         await setup();
+        break;
+      }
+      case "settings": {
+        const changed = await editSettings(projectRoot);
+        if (!changed) break;
+        if (isRunning) {
+          const apply = await Confirm.prompt({
+            message: "変更を反映するためコンテナを再作成しますか？",
+            default: true,
+          });
+          if (apply) {
+            console.log("[cloopy] 設定を反映中...");
+            const code = await compose(projectRoot, [...COMPOSE_UP_ARGS]);
+            if (code === 0) {
+              const env2 = readEnvFile(projectRoot);
+              const port2 = env2.get("CLOOPY_SSH_PORT") ?? DEFAULT_SSH_PORT;
+              // Sync the ~/.ssh/config alias to the (possibly new) port the
+              // freshly-recreated container now listens on, then refresh the
+              // host key. Done only after a successful recreate, so declining
+              // leaves the alias pointing at the still-running old container.
+              injectSshConfig(port2, instanceName);
+              await refreshKnownHosts(port2);
+              await checkBootstrapStatus(projectRoot);
+              console.log(green("[cloopy] 設定を反映しました"));
+            } else {
+              console.error(red("[cloopy] コンテナの再作成に失敗しました"));
+            }
+          } else {
+            console.log(
+              dim("[cloopy] 変更は次回の起動/再作成時に反映されます"),
+            );
+          }
+        } else {
+          console.log(dim("[cloopy] 変更は次回の起動時に反映されます"));
+        }
         break;
       }
       case "config": {

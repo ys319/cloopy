@@ -29,11 +29,13 @@ export function setEnvVar(
   const line = `${key}=${value}`;
 
   if (regex.test(content)) {
-    // Update existing (wherever it is)
-    content = content.replace(regex, line);
+    // Update existing (wherever it is). Use a function replacer so `$`-sequences
+    // in the value (e.g. $&, $1, $`) are inserted literally, not interpreted as
+    // replacement patterns.
+    content = content.replace(regex, () => line);
   } else if (auto && content.includes(END_MARKER)) {
-    // Insert just before the END marker
-    content = content.replace(END_MARKER, `${line}\n${END_MARKER}`);
+    // Insert just before the END marker (function replacer: same reason).
+    content = content.replace(END_MARKER, () => `${line}\n${END_MARKER}`);
   } else {
     content = content.trimEnd() + "\n" + line + "\n";
   }
