@@ -99,15 +99,6 @@ export async function buildAndStart(): Promise<void> {
 export async function setup(): Promise<void> {
   const projectRoot = getProjectRoot();
 
-  // LAN 公開質問のデフォルト判定用: 既存 .env (= bind 未設定なら従来どおり
-  // 全 IF 公開で使われてきた) か、新規 (= 安全側の localhost 限定を既定に) か
-  let envExisted = true;
-  try {
-    Deno.statSync(resolve(projectRoot, ".env"));
-  } catch {
-    envExisted = false;
-  }
-
   console.log("");
   console.log(bold(cyan("  cloopy セットアップ")));
   console.log("");
@@ -217,11 +208,11 @@ export async function setup(): Promise<void> {
     setEnvVar(envPath, "CLOOPY_SSH_PORT", portInput);
   }
 
-  // SSH 公開範囲。空 = 全インターフェース (Docker 既定 = 従来挙動)、
-  // LOCAL_BIND = localhost のみ。既存 .env で未設定なら従来どおり公開されて
-  // きたので「はい」を既定に（無断で挙動を変えない）。新規は安全側の
-  // 「いいえ」を既定にする。手編集されたカスタム bind (特定 IP 等) は
-  // 二択質問で潰さず、そのまま維持する。
+  // SSH 公開範囲。空 = 全インターフェース (Docker 既定)、LOCAL_BIND =
+  // localhost のみ。既定は安全側の「いいえ」— 明示的に LAN 公開を選んで
+  // 保存済み (CLOOPY_SSH_BIND= が存在して空) の場合だけ「はい」を既定にする。
+  // 手編集されたカスタム bind (特定 IP 等) は二択質問で潰さず、そのまま維持。
+  const bindSet = savedEnv.has("CLOOPY_SSH_BIND");
   const currentBind = savedEnv.get("CLOOPY_SSH_BIND") ?? "";
   let lanInput = true;
   if (currentBind !== "" && currentBind !== LOCAL_BIND) {
@@ -234,10 +225,10 @@ export async function setup(): Promise<void> {
     lanInput = await Confirm.prompt({
       message:
         "SSH を LAN の他のマシンに公開しますか？ (いいえ = このマシンからのみ接続可)",
-      default: envExisted ? currentBind === "" : false,
+      default: bindSet && currentBind === "",
     });
     const newBind = lanInput ? "" : LOCAL_BIND;
-    if (newBind !== currentBind) {
+    if (!bindSet || newBind !== currentBind) {
       setEnvVar(envPath, "CLOOPY_SSH_BIND", newBind);
     }
   }
