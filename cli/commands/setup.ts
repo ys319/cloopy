@@ -79,6 +79,9 @@ export async function buildAndStart(): Promise<void> {
   const code = await compose(projectRoot, [...COMPOSE_UP_ARGS]);
   if (code !== 0) {
     console.error("[cloopy] エラー: コンテナの起動に失敗しました");
+    console.error(
+      "[cloopy] 設定は保存済みです。上のログで原因を解消してから ./manage.sh を再実行してください",
+    );
     Deno.exit(1);
   }
   await refreshKnownHosts(port);
@@ -124,8 +127,12 @@ export async function setup(): Promise<void> {
 
   console.log("");
 
-  // 対話設定
-  const currentInstance = Deno.env.get("CLOOPY_INSTANCE_NAME") ??
+  // 対話設定 — デフォルト値は .env の保存値を優先する（Deno.env はシェルで
+  // export された場合のフォールバック。.env は docker compose が読むだけで
+  // CLI プロセスの環境変数には載らない）
+  const savedEnv = readEnvFile(projectRoot);
+  const currentInstance = savedEnv.get("CLOOPY_INSTANCE_NAME") ??
+    Deno.env.get("CLOOPY_INSTANCE_NAME") ??
     DEFAULT_INSTANCE_NAME;
   const instanceInput = await Input.prompt({
     message: "インスタンス名 (SSH ホスト名・ボリュームプレフィックス)",
@@ -141,7 +148,8 @@ export async function setup(): Promise<void> {
     setEnvVar(envPath, "CLOOPY_INSTANCE_NAME", instanceInput);
   }
 
-  const currentPort = Deno.env.get("CLOOPY_SSH_PORT") ?? DEFAULT_SSH_PORT;
+  const currentPort = savedEnv.get("CLOOPY_SSH_PORT") ??
+    Deno.env.get("CLOOPY_SSH_PORT") ?? DEFAULT_SSH_PORT;
   const portInput = await Input.prompt({
     message: "SSH ポート",
     default: currentPort,
@@ -157,7 +165,8 @@ export async function setup(): Promise<void> {
     setEnvVar(envPath, "CLOOPY_SSH_PORT", portInput);
   }
 
-  const currentTz = Deno.env.get("CLOOPY_TIMEZONE") ?? DEFAULT_TIMEZONE;
+  const currentTz = savedEnv.get("CLOOPY_TIMEZONE") ??
+    Deno.env.get("CLOOPY_TIMEZONE") ?? DEFAULT_TIMEZONE;
   const tzInput = await Input.prompt({
     message: "タイムゾーン",
     default: currentTz,
@@ -172,7 +181,8 @@ export async function setup(): Promise<void> {
   });
   if (tzInput !== currentTz) setEnvVar(envPath, "CLOOPY_TIMEZONE", tzInput);
 
-  const currentWs = Deno.env.get("CLOOPY_HOST_WORKSPACE") ?? DEFAULT_WORKSPACE;
+  const currentWs = savedEnv.get("CLOOPY_HOST_WORKSPACE") ??
+    Deno.env.get("CLOOPY_HOST_WORKSPACE") ?? DEFAULT_WORKSPACE;
   const wsInput = await Input.prompt({
     message: "ワークスペースパス",
     default: currentWs,
@@ -214,6 +224,9 @@ export async function setup(): Promise<void> {
   const code = await compose(projectRoot, [...COMPOSE_UP_ARGS]);
   if (code !== 0) {
     console.error("[cloopy] エラー: コンテナの起動に失敗しました");
+    console.error(
+      "[cloopy] 設定は保存済みです。上のログで原因を解消してから ./manage.sh を再実行してください",
+    );
     Deno.exit(1);
   }
 

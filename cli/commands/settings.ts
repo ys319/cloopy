@@ -41,6 +41,26 @@ function detectDnsPreset(primary: string): string {
   return "custom";
 }
 
+/** Loose IPv4 literal check (dotted quad, each octet 0-255). */
+function isIPv4(s: string): boolean {
+  const parts = s.split(".");
+  return parts.length === 4 &&
+    parts.every((p) => /^\d{1,3}$/.test(p) && Number(p) <= 255);
+}
+
+/**
+ * Validate a custom DNS resolver input. Empty is allowed (means "no change" /
+ * "reuse primary"). Invalid values would otherwise reach iptables via the
+ * firewall's DNS pin and break name resolution entirely (the :53 DROP lands
+ * but the ACCEPT for the resolver does not).
+ */
+function validateDnsInput(s: string): boolean | string {
+  const t = s.trim();
+  return !t || isIPv4(t)
+    ? true
+    : "IPv4 アドレスを入力してください (例: 1.1.1.2)";
+}
+
 /**
  * Interactive settings editor. Writes changes to the user-editable section of
  * `.env` (never the auto-managed block). Instance name is intentionally NOT
@@ -67,6 +87,7 @@ export async function editSettings(projectRoot: string): Promise<boolean> {
 
     console.log("");
     console.log(bold(cyan("  設定変更")));
+    console.log(dim("  ※ インスタンス名の変更はメニューの「再設定」から"));
     console.log("");
 
     const choice = await Select.prompt({
@@ -112,6 +133,7 @@ export async function editSettings(projectRoot: string): Promise<boolean> {
           const primary = (await Input.prompt({
             message: "プライマリ DNS (IPv4)",
             default: dns,
+            validate: validateDnsInput,
           })).trim();
           if (!primary) {
             console.log(dim("  変更なし"));
@@ -120,6 +142,7 @@ export async function editSettings(projectRoot: string): Promise<boolean> {
           const secondary = (await Input.prompt({
             message: "セカンダリ DNS (IPv4, 任意)",
             default: "",
+            validate: validateDnsInput,
           })).trim();
           const newSecondary = secondary || primary;
           if (primary === dns && newSecondary === dnsSecondary) {
