@@ -6,6 +6,7 @@ import {
   DEFAULT_TIMEZONE,
   DEFAULT_WORKSPACE,
 } from "../lib/constants.ts";
+import { validateWorkspacePath } from "../lib/workspace.ts";
 
 interface DnsPreset {
   name: string;
@@ -219,6 +220,7 @@ export async function editSettings(projectRoot: string): Promise<boolean> {
         const v = (await Input.prompt({
           message: "ワークスペースのホストパス",
           default: workspace,
+          validate: validateWorkspacePath,
         })).trim();
         if (v && v !== workspace) {
           setEnvVar(envPath, "CLOOPY_HOST_WORKSPACE", v);

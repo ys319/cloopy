@@ -19,6 +19,7 @@ import {
   DEFAULT_WORKSPACE,
 } from "../lib/constants.ts";
 import { resolve } from "@std/path";
+import { validateWorkspacePath } from "../lib/workspace.ts";
 import { bold, cyan, dim, green } from "@std/fmt/colors";
 
 /** docker-compose.local.yml を生成する */
@@ -175,6 +176,7 @@ export async function setup(): Promise<void> {
   const wsInput = await Input.prompt({
     message: "ワークスペースパス",
     default: currentWs,
+    validate: validateWorkspacePath,
   });
   if (wsInput !== currentWs) {
     setEnvVar(envPath, "CLOOPY_HOST_WORKSPACE", wsInput);

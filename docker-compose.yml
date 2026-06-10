@@ -33,16 +33,21 @@ services:
     # host's private range stays blocked.
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Host bind mounts carry the `z` flag so SELinux hosts (Fedora CoreOS /
+    # uCore: dockerd runs with --selinux-enabled) relabel them readable for the
+    # container. On hosts without SELinux (macOS/Windows/Ubuntu) `z` is a no-op.
     volumes:
-      # Authorized public key
-      - ${CLOOPY_PUBKEY_PATH}:/home/developer/.ssh/authorized_keys
+      # Authorized public key. Staged read-only; init-ssh-keys copies it to
+      # ~/.ssh/authorized_keys with the right owner/mode (chown/chmod on the
+      # bind mount itself would mutate the host's real file).
+      - ${CLOOPY_PUBKEY_PATH}:/etc/cloopy/authorized_keys:ro,z
       # Assets
-      - ./assets/CLAUDE.md:/home/developer/.claude/CLAUDE.md
-      - ./assets/.zshenv:/home/developer/.zshenv
+      - ./assets/CLAUDE.md:/home/developer/.claude/CLAUDE.md:z
+      - ./assets/.zshenv:/home/developer/.zshenv:z
       # Persist SSH Host Keys
       - ssh-config:/etc/ssh
       # Default: Bind Mount Workspace
-      - ${CLOOPY_HOST_WORKSPACE:-./workspace}:/home/developer/workspace
+      - ${CLOOPY_HOST_WORKSPACE:-./workspace}:/home/developer/workspace:z
       # Persist Home and Nix
       - home-data:/home/developer
       - nix-store:/nix
