@@ -13,8 +13,8 @@
 |---|---|---|
 | E-C-1 | `chown -R /home/developer` の bind mount 再帰によるホスト所有権破壊 | ✅ /proc/self/mountinfo でホスト bind を find -prune 除外（named volume は対象維持・グロブ文字エスケープ込み）。fake mountinfo シミュレーション 17 アサーション + Opus 敵対的検証 + **実機確認済み**（macOS UID 変更ブート） |
 | W-B-1 + W-D-3 | injectSshConfig の非アトミック書き込み + テストゼロ | ✅ tmp→rename のアトミック書き込み（0600）+ upsertHostBlock / ensureIncludeLine を純粋関数化しテスト 10 本追加。テストが末尾改行食いと RegExp 未エスケープの潜在バグ 2 件も検出・修正 |
-| W-C-3 | s6-overlay tarball のチェックサム未検証 | ✅ noarch / aarch64 / x86_64 の sha256 を ARG でピン留めし `sha256sum -c` で検証。値は公式リリースの .sha256 と実 tarball のローカルハッシュ計算の両方で照合済み。**次回 build（up --build で自動）が通ることだけ確認** |
-| G: Phase 1+2 | 複数 SSH 鍵対応 + GitHub `.keys` 取得 + 鍵管理メニュー | ✅ 🙋-G-1 は推奨どおり keys.json メタ store + 束ファイル再生成、🙋-G-2 のラベル付与（`github:<user>`）も採用。`cli/lib/keys.ts`（検証・指紋・store・束・fetch）+ `cli/commands/keys.ts`（一覧/追加3方式/削除、自動生成鍵は削除不可）。鍵反映は `up --force-recreate`（単一ファイル bind mount の inode 固定対策）。テスト 20 本（実鍵フィクスチャ・ssh-keygen 指紋照合）。**実機確認待ち** |
+| W-C-3 | s6-overlay tarball のチェックサム未検証 | ✅ noarch / aarch64 / x86_64 の sha256 を ARG でピン留めし `sha256sum -c` で検証。値は公式リリースの .sha256 と実 tarball のローカルハッシュ計算の両方で照合済み。**実ビルド成功を実機確認済み（2026-06-10）** |
+| G: Phase 1+2 | 複数 SSH 鍵対応 + GitHub `.keys` 取得 + 鍵管理メニュー | ✅ 🙋-G-1 は推奨どおり keys.json メタ store + 束ファイル再生成、🙋-G-2 のラベル付与（`github:<user>`）も採用。`cli/lib/keys.ts`（検証・指紋・store・束・fetch）+ `cli/commands/keys.ts`（一覧/追加3方式/削除、自動生成鍵は削除不可）。鍵反映は `up --force-recreate`（単一ファイル bind mount の inode 固定対策）。テスト 20 本（実鍵フィクスチャ・ssh-keygen 指紋照合）。**実機確認済み（2026-06-10: 鍵追加 → 再作成 → 追加鍵で SSH 成功）** |
 
 ## 優先度: 中
 | ID | 軸 | タグ | 内容 | 推定コスト | 着手タイミング |
