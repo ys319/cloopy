@@ -19,7 +19,7 @@ if not exist "%DENO%" (
         set "DENO_URL=https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip"
     )
 
-    powershell -Command "Invoke-WebRequest -Uri '%DENO_URL%' -OutFile '%DENO_ZIP%'"
+    powershell -Command "Invoke-WebRequest -UseBasicParsing -Uri '%DENO_URL%' -OutFile '%DENO_ZIP%'"
     if not exist "%~dp0.deno\bin" mkdir "%~dp0.deno\bin"
     powershell -Command "Expand-Archive -Force -Path '%DENO_ZIP%' -DestinationPath '%~dp0.deno\bin'"
     del "%DENO_ZIP%" 2>nul

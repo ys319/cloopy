@@ -11,6 +11,11 @@ fi
 if [ ! -f "$DENO" ]; then
     echo "[cloopy] Installing Deno locally..."
 
+    if ! command -v unzip > /dev/null 2>&1; then
+        echo "[cloopy] ERROR: unzip is required to install Deno. Install unzip and retry."
+        exit 1
+    fi
+
     # Detect platform
     OS="$(uname -s)"
     ARCH="$(uname -m)"
@@ -24,17 +29,28 @@ if [ ! -f "$DENO" ]; then
 
     URL="https://github.com/denoland/deno/releases/latest/download/$TARGET"
     TMP_ZIP="$(mktemp)"
-    trap 'rm -f "$TMP_ZIP"' EXIT
+    TMP_DIR="$(mktemp -d)"
+    trap 'rm -f "$TMP_ZIP"; rm -rf "$TMP_DIR"' EXIT
 
     curl -fsSL --retry 3 --retry-delay 2 "$URL" -o "$TMP_ZIP"
+    # Extract to a temp dir and move into place only when complete, so a
+    # failed download/unzip never leaves a broken deno binary that later
+    # runs would pick up and skip reinstalling.
+    unzip -o -q "$TMP_ZIP" -d "$TMP_DIR"
+    if [ ! -f "$TMP_DIR/deno" ]; then
+        echo "[cloopy] ERROR: Deno installation failed (archive did not contain deno)"
+        exit 1
+    fi
+    chmod +x "$TMP_DIR/deno"
     mkdir -p "$SCRIPT_DIR/.deno/bin"
-    unzip -o -q "$TMP_ZIP" -d "$SCRIPT_DIR/.deno/bin"
-    chmod +x "$DENO"
+    mv -f "$TMP_DIR/deno" "$DENO"
 
-    if [ ! -f "$DENO" ]; then
-        echo "[cloopy] ERROR: Deno installation failed"
+    if ! "$DENO" --version > /dev/null 2>&1; then
+        echo "[cloopy] ERROR: Deno installation failed (binary does not run)"
         exit 1
     fi
 fi
 
+# --allow-all: the CLI drives docker/ssh-keygen and writes .env / ~/.ssh/config;
+# Deno's permission prompts would add friction without real isolation here.
 "$DENO" run --allow-all "$SCRIPT_DIR/cli/main.ts" "$@"
