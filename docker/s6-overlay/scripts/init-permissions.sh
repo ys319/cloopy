@@ -51,7 +51,9 @@ if [[ "$PUID" != "$CURRENT_UID" || "$PGID" != "$CURRENT_GID" ]]; then
         sed -i -E "s|^(${USER_NAME}:[^:]*:)[0-9]+:[0-9]+:|\1${PUID}:${PGID}:|" /etc/passwd
     else
         echo "[init-permissions] WARN: unexpected /etc/passwd line, falling back to usermod (slow)"
-        usermod -o -u "$PUID" "${USER_NAME}"
+        # -g included: the sed path rewrites both fields, so the fallback must
+        # too (the group exists — ensured by the groupmod branch above).
+        usermod -o -u "$PUID" -g "$PGID" "${USER_NAME}"
     fi
 fi
 
