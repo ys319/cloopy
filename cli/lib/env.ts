@@ -6,7 +6,8 @@ const END_MARKER = "# END cloopy auto-managed";
 /**
  * Set a key=value in a .env file.
  * If the key is auto-managed, it goes inside the BEGIN/END block.
- * Otherwise updates existing or appends.
+ * Otherwise updates existing or appends. Inserted lines reuse the file's
+ * existing line-ending style (CRLF files stay CRLF).
  * @param filePath Absolute path to the .env file
  * @param key Environment variable name
  * @param value Environment variable value
@@ -25,19 +26,22 @@ export function setEnvVar(
     content = "";
   }
 
+  const eol = content.includes("\r\n") ? "\r\n" : "\n";
   const regex = new RegExp(`^${key}=.*$`, "m");
   const line = `${key}=${value}`;
 
   if (regex.test(content)) {
     // Update existing (wherever it is). Use a function replacer so `$`-sequences
     // in the value (e.g. $&, $1, $`) are inserted literally, not interpreted as
-    // replacement patterns.
+    // replacement patterns. `.` and multiline `$` both stop before `\r`, so a
+    // CRLF line keeps its `\r`.
     content = content.replace(regex, () => line);
   } else if (auto && content.includes(END_MARKER)) {
     // Insert just before the END marker (function replacer: same reason).
-    content = content.replace(END_MARKER, () => `${line}\n${END_MARKER}`);
+    content = content.replace(END_MARKER, () => `${line}${eol}${END_MARKER}`);
   } else {
-    content = content.trimEnd() + "\n" + line + "\n";
+    const base = content.trimEnd();
+    content = (base ? base + eol : "") + line + eol;
   }
 
   Deno.writeTextFileSync(filePath, content);

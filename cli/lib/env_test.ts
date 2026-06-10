@@ -153,3 +153,46 @@ Deno.test("setEnvVar: auto key appends when no END marker", () => {
     cleanup();
   }
 });
+
+Deno.test("setEnvVar: auto key with BEGIN but missing END appends without corruption", () => {
+  const { envPath, cleanup } = makeTmpProject();
+  try {
+    Deno.writeTextFileSync(
+      envPath,
+      "# BEGIN cloopy auto-managed\nA=1\n",
+    );
+    setEnvVar(envPath, "B", "2", true);
+    assertEquals(
+      Deno.readTextFileSync(envPath),
+      "# BEGIN cloopy auto-managed\nA=1\nB=2\n",
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+Deno.test("setEnvVar: preserves CRLF line endings on update and insert", () => {
+  const { envPath, cleanup } = makeTmpProject();
+  try {
+    Deno.writeTextFileSync(envPath, "PORT=8080\r\nHOST=localhost\r\n");
+    setEnvVar(envPath, "PORT", "9090");
+    setEnvVar(envPath, "NEW_KEY", "v");
+    assertEquals(
+      Deno.readTextFileSync(envPath),
+      "PORT=9090\r\nHOST=localhost\r\nNEW_KEY=v\r\n",
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+Deno.test("setEnvVar: no leading blank line when file is empty or new", () => {
+  const { envPath, cleanup } = makeTmpProject();
+  try {
+    Deno.writeTextFileSync(envPath, "");
+    setEnvVar(envPath, "FRESH", "value");
+    assertEquals(Deno.readTextFileSync(envPath), "FRESH=value\n");
+  } finally {
+    cleanup();
+  }
+});
