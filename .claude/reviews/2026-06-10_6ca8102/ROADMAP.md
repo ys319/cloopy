@@ -14,13 +14,12 @@
 | E-C-1 | `chown -R /home/developer` の bind mount 再帰によるホスト所有権破壊 | ✅ /proc/self/mountinfo でホスト bind を find -prune 除外（named volume は対象維持・グロブ文字エスケープ込み）。fake mountinfo シミュレーション 17 アサーション + Opus 敵対的検証 + **実機確認済み**（macOS UID 変更ブート） |
 | W-B-1 + W-D-3 | injectSshConfig の非アトミック書き込み + テストゼロ | ✅ tmp→rename のアトミック書き込み（0600）+ upsertHostBlock / ensureIncludeLine を純粋関数化しテスト 10 本追加。テストが末尾改行食いと RegExp 未エスケープの潜在バグ 2 件も検出・修正 |
 | W-C-3 | s6-overlay tarball のチェックサム未検証 | ✅ noarch / aarch64 / x86_64 の sha256 を ARG でピン留めし `sha256sum -c` で検証。値は公式リリースの .sha256 と実 tarball のローカルハッシュ計算の両方で照合済み。**次回 build（up --build で自動）が通ることだけ確認** |
+| G: Phase 1+2 | 複数 SSH 鍵対応 + GitHub `.keys` 取得 + 鍵管理メニュー | ✅ 🙋-G-1 は推奨どおり keys.json メタ store + 束ファイル再生成、🙋-G-2 のラベル付与（`github:<user>`）も採用。`cli/lib/keys.ts`（検証・指紋・store・束・fetch）+ `cli/commands/keys.ts`（一覧/追加3方式/削除、自動生成鍵は削除不可）。鍵反映は `up --force-recreate`（単一ファイル bind mount の inode 固定対策）。テスト 20 本（実鍵フィクスチャ・ssh-keygen 指紋照合）。**実機確認待ち** |
 
 ## 優先度: 中
 | ID | 軸 | タグ | 内容 | 推定コスト | 着手タイミング |
 |---|---|---|---|---|---|
-| G: Phase 1 | 機能 | 🙋 | **複数 SSH 鍵対応**: CLI 管理の束ファイル（~/.ssh/cloopy/authorized_keys = 自動生成鍵 + 追加鍵）を CLOOPY_PUBKEY_PATH に向ける + ペースト/ファイル指定で鍵追加。staged-copy 設計と相性良・Docker 側変更ゼロ。設計判断: 鍵の真実を束ファイル直編集にするか keys.json メタ store にするか（G レポートは後者推奨） | 半日-1日 | リモート接続が必要になったら最初に |
-| G: Phase 2 | 機能 | 🙋 | `github.com/<user>.keys` 取得 + 鍵管理メニュー（一覧/削除/指紋表示）。取得鍵のユーザー確認表示・`github:<user>` ラベル付与・404/空応答ハンドリング | 1-2日 | Phase 1 の後 |
-| G: Phase 3 | 機能 | 🙋 | リモート接続プロファイル（HostName/known_hosts 可変化、docker 非依存の config 注入モード）。W-G-1（HostName localhost 固定）/ W-G-2 / W-G-3（bind 全 IF 固定 — **デフォルト変更は既存利用を即破壊するので不可**、.env 可変化のみ） | 1-2日 | Phase 1/2 の後 |
+| G: Phase 3 | 機能 | 🙋 | リモート接続プロファイル（HostName/known_hosts 可変化、docker 非依存の config 注入モード）。W-G-1（HostName localhost 固定）/ W-G-2 / W-G-3（bind 全 IF 固定 — **デフォルト変更は既存利用を即破壊するので不可**、.env 可変化のみ） | 1-2日 | Phase 1/2 完了済み — 必要になったら |
 | W-C-2 | 🟡 | 🙋 | DNS ピンの v4/v6 独立判定 — 片系のみ設定時に他系 :53 が素通り（フィルタバイパス経路）。両系の整合ルールを決めて test/firewall-dns.sh も拡張 | 半日 + 実機 | firewall を次に触るとき |
 | W-C-4 | 🟡 | 🙋 | PUID/PGID の境界値検証（0 = root 化を拒否 or 警告、非数値 = 明示エラー） | 1-2時間 + 実機 | E-C-1 と同時 |
 | E-A-3 | 🟡 | 🙋 | 再 setup でインスタンス名変更時、旧 `<name>_*` ボリュームが無警告で孤立（ディスク消費のみ・データ喪失なし）。変更検出時に旧ボリューム一覧と削除案内を表示 | 2-3時間 | 中 |

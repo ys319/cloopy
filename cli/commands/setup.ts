@@ -5,9 +5,14 @@ import {
 } from "../lib/compose.ts";
 import { ensureEnvFile, readEnvFile, setEnvVar } from "../lib/env.ts";
 import {
+  authorizedKeysPath,
+  loadKeyStore,
+  rebuildAuthorizedKeys,
+  type StoredKey,
+} from "../lib/keys.ts";
+import {
   ensureKeyPair,
   injectSshConfig,
-  pubKeyPath,
   refreshKnownHosts,
 } from "../lib/ssh.ts";
 import { Confirm, Input } from "../lib/prompt.ts";
@@ -20,7 +25,7 @@ import {
 } from "../lib/constants.ts";
 import { resolve } from "@std/path";
 import { validateWorkspacePath } from "../lib/workspace.ts";
-import { bold, cyan, dim, green } from "@std/fmt/colors";
+import { bold, cyan, dim, green, yellow } from "@std/fmt/colors";
 
 /** docker-compose.local.yml を生成する */
 function generateLocalCompose(
@@ -101,6 +106,28 @@ export async function setup(): Promise<void> {
   // --------------------------------------------------------------------------
   console.log(bold("--- ステップ 1: SSH 鍵 ---"));
   await ensureKeyPair();
+
+  // コンテナへ渡す authorized_keys 束ファイル（自動生成鍵 + keys.json の
+  // 追加鍵）を再生成する。追加鍵は「SSH 鍵管理」メニューで管理。
+  let extraKeys: StoredKey[] = [];
+  try {
+    extraKeys = loadKeyStore().keys;
+  } catch (e) {
+    console.error(
+      yellow(`[cloopy] 警告: ${e instanceof Error ? e.message : e}`),
+    );
+    console.error(
+      yellow("[cloopy] 追加鍵を読み込めないため、自動生成鍵のみで構成します"),
+    );
+  }
+  rebuildAuthorizedKeys(extraKeys);
+  if (extraKeys.length > 0) {
+    console.log(
+      dim(
+        `[cloopy] 追加鍵 ${extraKeys.length} 件を authorized_keys に含めました`,
+      ),
+    );
+  }
   console.log("");
 
   // --------------------------------------------------------------------------
@@ -110,7 +137,9 @@ export async function setup(): Promise<void> {
   const envPath = ensureEnvFile(projectRoot);
 
   // 自動設定 (マーカーセクションに配置)
-  setEnvVar(envPath, "CLOOPY_PUBKEY_PATH", pubKeyPath(), true);
+  // 旧バージョンの .env は id_ed25519.pub を直接指すが、setEnvVar が
+  // その場で束ファイルパスへ上書きするため再 setup だけで移行が完了する
+  setEnvVar(envPath, "CLOOPY_PUBKEY_PATH", authorizedKeysPath(), true);
 
   if (Deno.build.os !== "windows") {
     const uid = new Deno.Command("id", { args: ["-u"], stdout: "piped" });

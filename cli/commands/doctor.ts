@@ -78,9 +78,29 @@ function checkEnvFile(): CheckResult {
   const envPath = resolve(getProjectRoot(), ".env");
   try {
     const content = Deno.readTextFileSync(envPath);
-    const hasPubkey = /^CLOOPY_PUBKEY_PATH=.+/m.test(content);
-    if (!hasPubkey) {
+    const pubkey = content.match(/^CLOOPY_PUBKEY_PATH=(.+)$/m);
+    if (!pubkey) {
       return { name: ".env", ok: false, detail: "CLOOPY_PUBKEY_PATH not set" };
+    }
+    // ステージ元ファイルが消えていると docker が同名ディレクトリを作って
+    // マウントし、init-ssh-keys が install に失敗して起動不能になる。
+    // setup の再実行 (rebuildAuthorizedKeys) で再生成されるので setup へ誘導。
+    const pubkeyFile = pubkey[1].trim();
+    try {
+      const st = Deno.statSync(pubkeyFile);
+      if (!st.isFile || st.size === 0) {
+        return {
+          name: ".env",
+          ok: false,
+          detail: `pubkey file empty or not a file: ${pubkeyFile}`,
+        };
+      }
+    } catch {
+      return {
+        name: ".env",
+        ok: false,
+        detail: `pubkey file missing: ${pubkeyFile}`,
+      };
     }
     return { name: ".env", ok: true, detail: "configured" };
   } catch (e) {

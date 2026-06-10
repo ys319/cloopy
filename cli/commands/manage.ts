@@ -13,11 +13,13 @@ import {
   DEFAULT_INSTANCE_NAME,
   DEFAULT_SSH_PORT,
 } from "../lib/constants.ts";
-import { readEnvFile } from "../lib/env.ts";
+import { ensureEnvFile, readEnvFile, setEnvVar } from "../lib/env.ts";
+import { authorizedKeysPath } from "../lib/keys.ts";
 import { Confirm, Select } from "../lib/prompt.ts";
 import { startTimer } from "../lib/spinner.ts";
 import { injectSshConfig, refreshKnownHosts } from "../lib/ssh.ts";
 import { doctor } from "./doctor.ts";
+import { manageKeys } from "./keys.ts";
 import { editSettings } from "./settings.ts";
 import { setup } from "./setup.ts";
 
@@ -43,6 +45,17 @@ export async function manage(): Promise<void> {
   const projectRoot = getProjectRoot();
   const env = readEnvFile(projectRoot);
   const instanceName = env.get("CLOOPY_INSTANCE_NAME") ?? DEFAULT_INSTANCE_NAME;
+
+  // 鍵管理で変更を保存したが稼働中コンテナへ未反映の状態。単一ファイル
+  // bind mount は rename 後の新 inode を追わず、構成変更なしの `up` は
+  // no-op になるため、次の up 系操作を --force-recreate に昇格して確実に
+  // 反映する（停止→起動・再起動はマウント再解決で反映される見込みだが、
+  // 昇格しても害はない）。
+  let keysPendingApply = false;
+  const upArgs = () =>
+    keysPendingApply
+      ? [...COMPOSE_UP_ARGS, "--force-recreate"]
+      : [...COMPOSE_UP_ARGS];
 
   while (true) {
     const status = await getStatus(projectRoot);
@@ -77,6 +90,7 @@ export async function manage(): Promise<void> {
         { name: "リビルド", value: "rebuild" },
         { name: "再設定", value: "setup" },
         { name: "設定変更", value: "settings" },
+        { name: "SSH 鍵管理", value: "keys" },
         { name: "設定を表示", value: "config" },
         { name: "ヘルスチェック", value: "doctor" },
         { name: "バックアップ", value: "backup" },
@@ -92,10 +106,11 @@ export async function manage(): Promise<void> {
     switch (choice) {
       case "start": {
         console.log("[cloopy] 起動中...");
-        const startCode = await compose(projectRoot, [...COMPOSE_UP_ARGS]);
+        const startCode = await compose(projectRoot, upArgs());
         if (startCode !== 0) {
           console.error(red("[cloopy] 起動に失敗しました"));
         } else {
+          keysPendingApply = false;
           await checkBootstrapStatus(projectRoot);
         }
         break;
@@ -108,6 +123,18 @@ export async function manage(): Promise<void> {
       }
       case "restart": {
         console.log("[cloopy] 再起動中...");
+        if (keysPendingApply) {
+          // 未反映の鍵変更がある場合は再作成で確実に反映する
+          console.log(dim("[cloopy] 未反映の鍵変更があるため再作成します..."));
+          const code = await compose(projectRoot, upArgs());
+          if (code !== 0) {
+            console.error(red("[cloopy] 再作成に失敗しました"));
+          } else {
+            keysPendingApply = false;
+            await checkBootstrapStatus(projectRoot);
+          }
+          break;
+        }
         const restartCode = await compose(projectRoot, ["restart"]);
         if (restartCode !== 0) {
           console.error(red("[cloopy] 再起動に失敗しました"));
@@ -203,7 +230,8 @@ export async function manage(): Promise<void> {
         const buildCode = await compose(projectRoot, ["build"]);
         timer.stop();
         if (buildCode === 0) {
-          await compose(projectRoot, [...COMPOSE_UP_ARGS]);
+          const upCode = await compose(projectRoot, upArgs());
+          if (upCode === 0) keysPendingApply = false;
           const env = readEnvFile(projectRoot);
           const port = env.get("CLOOPY_SSH_PORT") ?? DEFAULT_SSH_PORT;
           await refreshKnownHosts(port);
@@ -225,6 +253,8 @@ export async function manage(): Promise<void> {
           console.log("");
         }
         await setup();
+        // setup は down → up で必ず再作成するため、未反映の鍵変更も反映済み
+        keysPendingApply = false;
         break;
       }
       case "settings": {
@@ -237,8 +267,9 @@ export async function manage(): Promise<void> {
           });
           if (apply) {
             console.log("[cloopy] 設定を反映中...");
-            const code = await compose(projectRoot, [...COMPOSE_UP_ARGS]);
+            const code = await compose(projectRoot, upArgs());
             if (code === 0) {
+              keysPendingApply = false;
               const env2 = readEnvFile(projectRoot);
               const port2 = env2.get("CLOOPY_SSH_PORT") ?? DEFAULT_SSH_PORT;
               // Sync the ~/.ssh/config alias to the (possibly new) port the
@@ -258,6 +289,49 @@ export async function manage(): Promise<void> {
             );
           }
         } else {
+          console.log(dim("[cloopy] 変更は次回の起動時に反映されます"));
+        }
+        break;
+      }
+      case "keys": {
+        const changed = await manageKeys();
+        if (!changed) break;
+        // 旧 .env (id_ed25519.pub 直指し) からの移行: 束ファイルへ向け替える
+        const keysEnv = readEnvFile(projectRoot);
+        if (keysEnv.get("CLOOPY_PUBKEY_PATH") !== authorizedKeysPath()) {
+          const envPath = ensureEnvFile(projectRoot);
+          setEnvVar(envPath, "CLOOPY_PUBKEY_PATH", authorizedKeysPath(), true);
+        }
+        if (isRunning) {
+          const apply = await Confirm.prompt({
+            message: "鍵を反映するためコンテナを再作成しますか？",
+            default: true,
+          });
+          if (apply) {
+            console.log("[cloopy] 鍵を反映中...");
+            // 単一ファイル bind mount は rename 後の新 inode を追わないため、
+            // restart ではなく再作成 (--force-recreate) で確実に反映する。
+            const code = await compose(projectRoot, [
+              ...COMPOSE_UP_ARGS,
+              "--force-recreate",
+            ]);
+            if (code === 0) {
+              await checkBootstrapStatus(projectRoot);
+              console.log(green("[cloopy] 鍵を反映しました"));
+            } else {
+              keysPendingApply = true;
+              console.error(red("[cloopy] コンテナの再作成に失敗しました"));
+            }
+          } else {
+            keysPendingApply = true;
+            console.log(
+              dim(
+                "[cloopy] 変更は保存済みです。次回の起動/再起動/リビルド時に反映します",
+              ),
+            );
+          }
+        } else {
+          keysPendingApply = true;
           console.log(dim("[cloopy] 変更は次回の起動時に反映されます"));
         }
         break;

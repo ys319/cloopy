@@ -40,20 +40,54 @@ export function mainSshConfigPath(): string {
 
 /**
  * Generate SSH key pair if not already present.
+ * If only the .pub is missing (partial loss / restored private key), it is
+ * re-derived from the private key — otherwise every later step that reads
+ * the public key (authorized_keys rebuild) would fail with advice to "run
+ * setup", which is exactly the step that failed.
  * Returns true if a new key was generated.
  */
 export async function ensureKeyPair(): Promise<boolean> {
   const key = keyPath();
+  const pub = pubKeyPath();
 
+  let hasPrivateKey = false;
   try {
     Deno.statSync(key);
-    console.log("[cloopy] SSH key already exists, skipping");
-    return false;
+    hasPrivateKey = true;
   } catch (e) {
     if (!(e instanceof Deno.errors.NotFound)) {
       throw e;
     }
-    // Key doesn't exist, generate
+  }
+
+  if (hasPrivateKey) {
+    try {
+      Deno.statSync(pub);
+      console.log("[cloopy] SSH key already exists, skipping");
+      return false;
+    } catch (e) {
+      if (!(e instanceof Deno.errors.NotFound)) {
+        throw e;
+      }
+    }
+    console.log("[cloopy] 公開鍵が見つからないため秘密鍵から再生成します...");
+    // -P "": パスフレーズ付き鍵（通常ありえない）でも対話で固まらず即エラーになる
+    const derive = new Deno.Command("ssh-keygen", {
+      args: ["-y", "-P", "", "-f", key],
+      stdout: "piped",
+      stderr: "inherit",
+    });
+    const { code, stdout } = await derive.output();
+    const pubContent = new TextDecoder().decode(stdout).trim();
+    if (code !== 0 || !pubContent) {
+      throw new Error(
+        `公開鍵を再生成できませんでした。秘密鍵 (${key}) が壊れている可能性があります。` +
+          `削除して再実行すると新しい鍵ペアを生成します`,
+      );
+    }
+    writeFileAtomic(pub, pubContent + "\n");
+    console.log("[cloopy] 公開鍵を再生成しました");
+    return false;
   }
 
   const dir = sshDir();
@@ -84,7 +118,7 @@ function escapeRegExp(s: string): string {
  * parsed by EVERY ssh invocation — a torn write there breaks SSH for all
  * hosts, not just cloopy.
  */
-function writeFileAtomic(path: string, content: string): void {
+export function writeFileAtomic(path: string, content: string): void {
   const tmp = `${path}.tmp~`;
   try {
     Deno.writeTextFileSync(tmp, content, { mode: 0o600 });
