@@ -3,10 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
-    paths: ["cli/**", "deno.json", ".github/workflows/ci.yml"]
+    paths: ["cli/**", ".github/workflows/ci.yml"]
   pull_request:
     branches: [main]
-    paths: ["cli/**", "deno.json", ".github/workflows/ci.yml"]
+    paths: ["cli/**", ".github/workflows/ci.yml"]
 
 permissions:
   contents: read
@@ -27,5 +27,8 @@ jobs:
       - name: Format check
         run: deno fmt --check cli/
 
+      # cli/deno.json はルートからの実行では発見されない（bare specifier が
+      # TS2307 で解決できず落ちる）ため、cli/ を作業ディレクトリにして実行する。
       - name: Test
-        run: deno test cli/ --allow-read --allow-write --allow-env
+        working-directory: cli
+        run: deno test . --allow-read --allow-write --allow-env
