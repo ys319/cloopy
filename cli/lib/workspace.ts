@@ -1,4 +1,4 @@
-import { resolve } from "@std/path";
+import { basename, dirname, resolve } from "@std/path";
 
 // docker-compose.yml はワークスペースを `z` フラグ付きで bind mount する。
 // SELinux ホスト（Fedora CoreOS / uCore 等）では docker がマウント元ツリー
@@ -31,8 +31,33 @@ const FORBIDDEN_PATHS = new Set([
 ]);
 
 /**
+ * Resolve symlinks in a path. If the path itself does not exist yet, resolve
+ * the nearest existing ancestor and re-append the remainder, so a workspace
+ * that will be created later is still checked against its real location.
+ * Falls back to the input unchanged if nothing up to the root exists.
+ */
+function toRealPath(path: string): string {
+  const suffix: string[] = [];
+  let current = path;
+  while (true) {
+    try {
+      const real = Deno.realPathSync(current);
+      return suffix.length ? resolve(real, ...suffix) : real;
+    } catch {
+      const parent = dirname(current);
+      if (parent === current) return path;
+      suffix.unshift(basename(current));
+      current = parent;
+    }
+  }
+}
+
+/**
  * Validate a workspace host path for the bind mount.
  * Returns true if safe, or a Japanese error message for the prompt.
+ * Checks both the literal path and its symlink-resolved form — e.g. on
+ * Fedora CoreOS / uCore, /home is a symlink to /var/home, so "/home/core"
+ * would otherwise slip past the $HOME comparison.
  */
 export function validateWorkspacePath(input: string): boolean | string {
   const raw = input.trim();
@@ -47,18 +72,24 @@ export function validateWorkspacePath(input: string): boolean | string {
     ? resolve(home, raw.slice(2))
     : raw;
   const path = resolve(expanded);
+  const candidates = new Set([path, toRealPath(path)]);
+  const homes = home
+    ? new Set([resolve(home), toRealPath(resolve(home))])
+    : new Set<string>();
 
-  if (FORBIDDEN_PATHS.has(path)) {
-    return `システムディレクトリは指定できません (${path})`;
-  }
-  if (home) {
-    if (path === resolve(home) || resolve(home).startsWith(path + "/")) {
-      return "ホームディレクトリ全体（やその親）は指定できません。" +
-        "SELinux ホストでは :z リラベルで ~/.ssh が壊れ、ホストに SSH できなくなります";
+  for (const p of candidates) {
+    if (FORBIDDEN_PATHS.has(p)) {
+      return `システムディレクトリは指定できません (${p})`;
     }
-    const sshDir = resolve(home, ".ssh");
-    if (path === sshDir || path.startsWith(sshDir + "/")) {
-      return "~/.ssh 配下は指定できません";
+    for (const h of homes) {
+      if (p === h || h.startsWith(p + "/")) {
+        return "ホームディレクトリ全体（やその親）は指定できません。" +
+          "SELinux ホストでは :z リラベルで ~/.ssh が壊れ、ホストに SSH できなくなります";
+      }
+      const sshDir = resolve(h, ".ssh");
+      if (p === sshDir || p.startsWith(sshDir + "/")) {
+        return "~/.ssh 配下は指定できません";
+      }
     }
   }
   return true;
