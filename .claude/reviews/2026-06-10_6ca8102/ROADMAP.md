@@ -5,10 +5,14 @@
 ## 優先度: 高（次回レビュー前に対応推奨）
 | ID | 軸 | タグ | 内容 | 推定コスト | 着手タイミング |
 |---|---|---|---|---|---|
-| E-C-1 | 🔴 | 🙋 | `init-permissions.sh:87` の `chown -R /home/developer` が配下の bind mount（workspace / .zshenv / .claude/CLAUDE.md）に再帰し、**UID 変更時にホスト実ファイルの所有権を書き換える**（authorized_keys で潰したのと同類）。修正案: /proc/mounts（awk 非依存で read ループ）から `$USER_HOME` 配下のマウントポイントを列挙し `find -path ... -prune` で除外して chown。timeout 300 は維持 | 半日 + 実機検証（uCore/macOS で UID 変更起動） | 次にコンテナを触るとき |
 | W-B-1 + W-D-3 | 🟡 | 🙋 | `ssh.ts` injectSshConfig: 書き込み失敗時の巻き戻しなし + **テストゼロ**（~/.ssh/config 破損 = SSH 全滅に直結）。tmp 書き込み→rename のアトミック化 + マーカー処理のユニットテスト | 1日 | 高 |
 | W-C-3 | 🟡 | 🙋 | Dockerfile: s6-overlay tarball をチェックサム未検証で展開し PID 1 実行（供給鎖）。リリースの sha256 を ARG でピン留め | 1-2時間 + ビルド確認 | 高 |
-| 実機検証 | - | - | `1592989`（usermod -g / .zshenv ガード）の起動 + `ssh cloopy` 疎通確認。未検証のまま放置しない | 10分 | **次回起動時すぐ** |
+| 実機検証 | - | - | `1592989`（usermod -g / .zshenv ガード）と **E-C-1 修正（chown のホスト bind 除外）** の起動 + `ssh cloopy` 疎通確認。E-C-1 は UID 変更ブート（CLOOPY_USER_UID を一時変更→起動→ホスト側 workspace の所有権が不変なこと→戻す）も確認 | 15分 | **次回起動時すぐ** |
+
+### 対応済み（レビュー後の追補）
+| ID | 内容 | 対応 |
+|---|---|---|
+| E-C-1 | `chown -R /home/developer` の bind mount 再帰によるホスト所有権破壊 | ✅ /proc/self/mountinfo でホスト bind を find -prune 除外（named volume は対象維持・グロブ文字エスケープ込み）。fake mountinfo シミュレーション 17 アサーション + Opus 敵対的検証済み。**実機検証のみ残**（上の実機検証行参照） |
 
 ## 優先度: 中
 | ID | 軸 | タグ | 内容 | 推定コスト | 着手タイミング |

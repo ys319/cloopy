@@ -73,6 +73,64 @@ needs_chown() {
     [[ "$dir_uid" != "$PUID" || "$dir_gid" != "$PGID" ]]
 }
 
+# ------------------------------------------------------------------------------
+# Host bind mounts under a directory (workspace, .zshenv, .claude/CLAUDE.md and
+# any docker-compose.local.yml binds). The recursive chown must never descend
+# into them: it would rewrite the ownership of the real files on the HOST —
+# the same failure mode the authorized_keys staging copy exists to avoid (on
+# rootless engines the files end up owned by a subuid and become unreadable on
+# the host). Named volumes (mountinfo root looks like .../volumes/<name>/_data
+# for both docker and podman) stay INCLUDED: their content is container-owned
+# and must follow PUID/PGID (e.g. the optional workspace-data volume).
+# ------------------------------------------------------------------------------
+host_bind_mounts_under() {
+    local base="$1" _id _parent _dev root mnt _rest
+    while read -r _id _parent _dev root mnt _rest; do
+        case "$mnt" in
+            "$base"/*) ;;
+            *) continue ;;
+        esac
+        case "$root" in
+            */volumes/*/_data | */volumes/*/_data/*) continue ;;
+        esac
+        # /proc encodes spaces etc. as octal escapes (\040) — decode for find
+        printf '%b\n' "$mnt"
+    done < /proc/self/mountinfo
+}
+
+# find -path treats its argument as a glob pattern — escape metacharacters so
+# a mount point like ".../proj[v2]" still prunes exactly (an unescaped pattern
+# would silently fail to match and the bind would get chowned after all).
+glob_escape() {
+    local s="$1"
+    s=${s//\\/\\\\} # backslash first
+    s=${s//\*/\\*}
+    s=${s//\?/\\?}
+    s=${s//\[/\\[}
+    printf '%s' "$s"
+}
+
+# Recursive chown of $1 that skips host bind mounts. Non-zero on timeout or
+# partial failure (caller falls back to chowning the top level only).
+chown_tree() {
+    local base="$1" mnt
+    local -a prune=()
+    while IFS= read -r mnt; do
+        echo "[init-permissions]   skipping host bind mount: ${mnt}"
+        prune+=(-path "$(glob_escape "$mnt")" -prune -o)
+    done < <(host_bind_mounts_under "$base")
+
+    if [[ ${#prune[@]} -eq 0 ]]; then
+        timeout 300 chown -R "${PUID}:${PGID}" "$base"
+    else
+        # -h: chown the symlinks themselves, never their targets (recursive
+        # chown does not follow symlinks either). pipefail makes a find
+        # timeout (124) fail the pipeline so the caller sees it.
+        timeout 300 find "$base" "${prune[@]}" -print0 \
+            | xargs -0 -r chown -h "${PUID}:${PGID}"
+    fi
+}
+
 if [[ -f "$MARKER" && "$(cat "$MARKER")" == "$CURRENT_OWNER" ]]; then
     echo "[init-permissions] UID/GID unchanged since last boot, skipping recursive chown"
     # Still fix top-level just in case
@@ -86,8 +144,8 @@ else
     for dir in "${USER_HOME}" /nix; do
         if [[ -d "$dir" ]]; then
             echo "[init-permissions] chown -R ${PUID}:${PGID} ${dir} (this may take a while, timeout: 5min)"
-            if ! timeout 300 chown -R "${PUID}:${PGID}" "$dir"; then
-                echo "[init-permissions] WARN: chown timed out for ${dir}, fixing top-level only"
+            if ! chown_tree "$dir"; then
+                echo "[init-permissions] WARN: chown timed out or failed for ${dir}, fixing top-level only"
                 chown "${PUID}:${PGID}" "$dir"
             fi
         fi
