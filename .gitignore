@@ -1,5 +1,6 @@
 .env
 .deno/
+.deno-cache/
 
 workspace/*
 !workspace/.vscode
