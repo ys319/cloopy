@@ -12,9 +12,11 @@ import {
   COMPOSE_UP_ARGS,
   DEFAULT_INSTANCE_NAME,
   DEFAULT_SSH_PORT,
+  DEFAULT_TIMEZONE,
+  DEFAULT_WORKSPACE,
 } from "../lib/constants.ts";
 import { ensureEnvFile, readEnvFile, setEnvVar } from "../lib/env.ts";
-import { authorizedKeysPath } from "../lib/keys.ts";
+import { authorizedKeysPath, loadKeyStore } from "../lib/keys.ts";
 import { Confirm, Select } from "../lib/prompt.ts";
 import { startTimer } from "../lib/spinner.ts";
 import { injectSshConfig, refreshKnownHosts } from "../lib/ssh.ts";
@@ -39,6 +41,48 @@ async function pressAnyKey(): Promise<void> {
   } finally {
     Deno.stdin.setRaw(false);
   }
+}
+
+/**
+ * 「設定」サブメニューの冒頭に現在の有効値（.env + デフォルト）を表示する。
+ * ラベルは全角を考慮して手動で桁揃え（settings.ts のメニュー表記と同様）。
+ */
+function printCurrentSettings(projectRoot: string, instanceName: string): void {
+  const env = readEnvFile(projectRoot);
+  const cur = (k: string, d: string) => env.get(k) ?? d;
+  let keyCount = "?";
+  try {
+    keyCount = String(loadKeyStore().keys.length);
+  } catch {
+    // 破損時は ? のまま表示（詳細エラーは鍵管理を開いたときに出る）
+  }
+  const workspace = env.get("CLOOPY_WORKSPACE_VOLUME") === "true"
+    ? "Docker ボリューム (workspace-data)"
+    : cur("CLOOPY_HOST_WORKSPACE", DEFAULT_WORKSPACE);
+  const rows: [string, string][] = [
+    ["インスタンス名  ", instanceName],
+    ["SSH ポート      ", cur("CLOOPY_SSH_PORT", DEFAULT_SSH_PORT)],
+    ["タイムゾーン    ", cur("CLOOPY_TIMEZONE", DEFAULT_TIMEZONE)],
+    ["ワークスペース  ", workspace],
+    ["Firewall        ", cur("CLOOPY_FIREWALL", "on")],
+    ["ホスト連携      ", cur("CLOOPY_ALLOW_HOST", "on")],
+    [
+      "DNS             ",
+      `${cur("CLOOPY_DNS_PRIMARY", "1.1.1.2")} / ${
+        cur("CLOOPY_DNS_SECONDARY", "1.0.0.2")
+      }`,
+    ],
+    ["追加 SSH 鍵     ", `${keyCount} 件 (+ 自動生成鍵)`],
+  ];
+  console.clear();
+  console.log("");
+  console.log(bold(cyan(`  現在の設定 [${instanceName}]`)));
+  console.log(dim("  ─────────────────────────────"));
+  for (const [label, value] of rows) {
+    console.log(`  ${cyan(label)}${value}`);
+  }
+  console.log(dim("  ─────────────────────────────"));
+  console.log("");
 }
 
 export async function manage(): Promise<void> {
@@ -67,39 +111,67 @@ export async function manage(): Promise<void> {
     console.log("");
 
     const isRunning = status.startsWith("running");
-    const choice = await Select.prompt({
+    let choice: string = await Select.prompt({
       message: "操作を選択",
       maxRows: 20,
       options: [
         ...(
           isRunning
             ? [
+              { name: "SSH 接続", value: "ssh" },
+              { name: "VS Code で開く", value: "vscode" },
+              SEPARATOR,
               { name: "停止", value: "stop" },
               { name: "再起動", value: "restart" },
               { name: "ログ確認", value: "logs" },
-              SEPARATOR,
-              { name: "SSH 接続", value: "ssh" },
-              { name: "VS Code で開く", value: "vscode" },
-              { name: "管理シェル", value: "shell" },
             ]
             : [
               { name: "起動", value: "start" },
             ]
         ),
         SEPARATOR,
-        { name: "リビルド", value: "rebuild" },
-        { name: "再設定", value: "setup" },
-        { name: "設定変更", value: "settings" },
-        { name: "SSH 鍵管理", value: "keys" },
-        { name: "設定を表示", value: "config" },
-        { name: "ヘルスチェック", value: "doctor" },
-        { name: "バックアップ", value: "backup" },
-        { name: "リストア", value: "restore" },
-        { name: red("リセット"), value: "reset" },
+        { name: "設定", value: "menu-settings" },
+        { name: "メンテナンス", value: "menu-maintenance" },
         SEPARATOR,
         { name: "終了", value: "quit" },
       ],
     });
+
+    // サブメニュー: ここでは選択をアクション値へ解決するだけで、
+    // アクション本体は下の switch に集約する
+    if (choice === "menu-settings") {
+      printCurrentSettings(projectRoot, instanceName);
+      choice = await Select.prompt({
+        message: "操作を選択",
+        options: [
+          {
+            name: "設定変更 (DNS・Firewall・SSH ポート等)",
+            value: "settings",
+          },
+          { name: "SSH 鍵管理", value: "keys" },
+          { name: "再設定 (セットアップをやり直す)", value: "setup" },
+          SEPARATOR,
+          { name: "戻る", value: "back" },
+        ],
+      });
+    } else if (choice === "menu-maintenance") {
+      console.log("");
+      choice = await Select.prompt({
+        message: "メンテナンス",
+        options: [
+          { name: "ヘルスチェック", value: "doctor" },
+          { name: "リビルド (イメージ再ビルド + 再起動)", value: "rebuild" },
+          { name: "管理シェル (root)", value: "shell" },
+          { name: "バックアップ", value: "backup" },
+          { name: "リストア", value: "restore" },
+          { name: red("リセット (永続データ初期化)"), value: "reset" },
+          SEPARATOR,
+          { name: "戻る", value: "back" },
+        ],
+      });
+    }
+
+    if (choice === "back") continue;
 
     console.log("");
 
@@ -334,20 +406,6 @@ export async function manage(): Promise<void> {
           keysPendingApply = true;
           console.log(dim("[cloopy] 変更は次回の起動時に反映されます"));
         }
-        break;
-      }
-      case "config": {
-        const env = readEnvFile(projectRoot);
-        console.log(bold("  現在の設定 (.env):"));
-        console.log(dim("  ─────────────────────────────"));
-        for (const [key, value] of env) {
-          const label = key.replace("CLOOPY_", "");
-          console.log(`  ${cyan(label.padEnd(20))} = ${value}`);
-        }
-        if (env.size === 0) {
-          console.log(dim("  (.env ファイルが見つかりません)"));
-        }
-        await pressAnyKey();
         break;
       }
       case "backup": {
