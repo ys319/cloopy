@@ -10,6 +10,7 @@ import {
   rebuildAuthorizedKeys,
   type StoredKey,
 } from "../lib/keys.ts";
+import { loadRemoteStore } from "../lib/remote.ts";
 import {
   ensureKeyPair,
   injectSshConfig,
@@ -22,6 +23,7 @@ import {
   DEFAULT_SSH_PORT,
   DEFAULT_TIMEZONE,
   DEFAULT_WORKSPACE,
+  LOCAL_BIND,
 } from "../lib/constants.ts";
 import { resolve } from "@std/path";
 import { validateWorkspacePath } from "../lib/workspace.ts";
@@ -97,6 +99,15 @@ export async function buildAndStart(): Promise<void> {
 export async function setup(): Promise<void> {
   const projectRoot = getProjectRoot();
 
+  // LAN 公開質問のデフォルト判定用: 既存 .env (= bind 未設定なら従来どおり
+  // 全 IF 公開で使われてきた) か、新規 (= 安全側の localhost 限定を既定に) か
+  let envExisted = true;
+  try {
+    Deno.statSync(resolve(projectRoot, ".env"));
+  } catch {
+    envExisted = false;
+  }
+
   console.log("");
   console.log(bold(cyan("  cloopy セットアップ")));
   console.log("");
@@ -163,12 +174,24 @@ export async function setup(): Promise<void> {
   const currentInstance = savedEnv.get("CLOOPY_INSTANCE_NAME") ??
     Deno.env.get("CLOOPY_INSTANCE_NAME") ??
     DEFAULT_INSTANCE_NAME;
+  // リモート接続エントリと SSH Host 名前空間を共有するため、衝突する名前は
+  // 拒否する (許すと injectSshConfig がリモート向けブロックを localhost で
+  // 上書きし、そのエントリが黙って壊れる)
+  let remoteNames: string[] = [];
+  try {
+    remoteNames = loadRemoteStore().remotes.map((r) => r.name);
+  } catch {
+    // store 破損時は衝突チェックを諦める (破損の警告はリモート接続メニュー側)
+  }
   const instanceInput = await Input.prompt({
     message: "インスタンス名 (SSH ホスト名・ボリュームプレフィックス)",
     default: currentInstance,
     validate: (v) => {
       if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(v)) {
         return "英字で始まり、英数字・ハイフン・アンダースコアのみ使用できます";
+      }
+      if (remoteNames.includes(v)) {
+        return `"${v}" はリモート接続エントリで使用中です (リモート接続メニューで削除してから使用できます)`;
       }
       return true;
     },
@@ -192,6 +215,31 @@ export async function setup(): Promise<void> {
   });
   if (portInput !== currentPort) {
     setEnvVar(envPath, "CLOOPY_SSH_PORT", portInput);
+  }
+
+  // SSH 公開範囲。空 = 全インターフェース (Docker 既定 = 従来挙動)、
+  // LOCAL_BIND = localhost のみ。既存 .env で未設定なら従来どおり公開されて
+  // きたので「はい」を既定に（無断で挙動を変えない）。新規は安全側の
+  // 「いいえ」を既定にする。手編集されたカスタム bind (特定 IP 等) は
+  // 二択質問で潰さず、そのまま維持する。
+  const currentBind = savedEnv.get("CLOOPY_SSH_BIND") ?? "";
+  let lanInput = true;
+  if (currentBind !== "" && currentBind !== LOCAL_BIND) {
+    console.log(
+      dim(
+        `[cloopy] SSH 公開範囲: カスタム設定 CLOOPY_SSH_BIND=${currentBind} を維持します`,
+      ),
+    );
+  } else {
+    lanInput = await Confirm.prompt({
+      message:
+        "SSH を LAN の他のマシンに公開しますか？ (いいえ = このマシンからのみ接続可)",
+      default: envExisted ? currentBind === "" : false,
+    });
+    const newBind = lanInput ? "" : LOCAL_BIND;
+    if (newBind !== currentBind) {
+      setEnvVar(envPath, "CLOOPY_SSH_BIND", newBind);
+    }
   }
 
   const currentTz = savedEnv.get("CLOOPY_TIMEZONE") ??
@@ -276,5 +324,13 @@ export async function setup(): Promise<void> {
       )
     }`,
   );
+  if (lanInput) {
+    console.log(
+      dim(
+        `  他マシンから: 接続元の cloopy メニュー「リモート接続」で\n` +
+          `  このマシンの IP とポート ${portInput} を登録すると ssh 一発で繋がります`,
+      ),
+    );
+  }
   console.log("");
 }

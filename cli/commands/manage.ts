@@ -14,6 +14,7 @@ import {
   DEFAULT_SSH_PORT,
   DEFAULT_TIMEZONE,
   DEFAULT_WORKSPACE,
+  LOCAL_BIND,
 } from "../lib/constants.ts";
 import { ensureEnvFile, readEnvFile, setEnvVar } from "../lib/env.ts";
 import { authorizedKeysPath, loadKeyStore } from "../lib/keys.ts";
@@ -22,6 +23,7 @@ import { startTimer } from "../lib/spinner.ts";
 import { injectSshConfig, refreshKnownHosts } from "../lib/ssh.ts";
 import { doctor } from "./doctor.ts";
 import { manageKeys } from "./keys.ts";
+import { manageRemotes } from "./remote.ts";
 import { editSettings } from "./settings.ts";
 import { setup } from "./setup.ts";
 
@@ -59,9 +61,16 @@ function printCurrentSettings(projectRoot: string, instanceName: string): void {
   const workspace = env.get("CLOOPY_WORKSPACE_VOLUME") === "true"
     ? "Docker ボリューム (workspace-data)"
     : cur("CLOOPY_HOST_WORKSPACE", DEFAULT_WORKSPACE);
+  const bind = env.get("CLOOPY_SSH_BIND") ?? "";
+  const bindDisp = bind === ""
+    ? "LAN 公開 (全インターフェース)"
+    : bind === LOCAL_BIND
+    ? "ローカルのみ (127.0.0.1)"
+    : bind;
   const rows: [string, string][] = [
     ["インスタンス名  ", instanceName],
     ["SSH ポート      ", cur("CLOOPY_SSH_PORT", DEFAULT_SSH_PORT)],
+    ["SSH 公開範囲    ", bindDisp],
     ["タイムゾーン    ", cur("CLOOPY_TIMEZONE", DEFAULT_TIMEZONE)],
     ["ワークスペース  ", workspace],
     ["Firewall        ", cur("CLOOPY_FIREWALL", "on")],
@@ -132,6 +141,7 @@ export async function manage(): Promise<void> {
         SEPARATOR,
         { name: "設定", value: "menu-settings" },
         { name: "メンテナンス", value: "menu-maintenance" },
+        { name: "リモート接続 (他マシンの cloopy へ)", value: "remotes" },
         SEPARATOR,
         { name: "終了", value: "quit" },
       ],
@@ -406,6 +416,10 @@ export async function manage(): Promise<void> {
           keysPendingApply = true;
           console.log(dim("[cloopy] 変更は次回の起動時に反映されます"));
         }
+        break;
+      }
+      case "remotes": {
+        await manageRemotes();
         break;
       }
       case "backup": {

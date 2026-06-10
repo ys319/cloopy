@@ -5,8 +5,13 @@ services:
     image: ys319/cloopy:latest
     build:
       context: ./docker
+    # CLOOPY_SSH_BIND limits which interfaces publish the SSH port. The value
+    # INCLUDES the trailing colon ("127.0.0.1:" = local only). Empty/unset
+    # keeps Docker's default (all interfaces, IPv4+IPv6) — an explicit
+    # "0.0.0.0:" would silently drop the IPv6 binding, so the open setting is
+    # expressed as empty instead. The CLI setup/settings menu manages this.
     ports:
-      - "${CLOOPY_SSH_PORT:-10022}:22"
+      - "${CLOOPY_SSH_BIND:-}${CLOOPY_SSH_PORT:-10022}:22"
     environment:
       - PUID=${CLOOPY_USER_UID:-1000}
       - PGID=${CLOOPY_USER_GID:-1000}

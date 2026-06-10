@@ -5,6 +5,7 @@ import {
   DEFAULT_SSH_PORT,
   DEFAULT_TIMEZONE,
   DEFAULT_WORKSPACE,
+  LOCAL_BIND,
 } from "../lib/constants.ts";
 import { validateWorkspacePath } from "../lib/workspace.ts";
 
@@ -82,6 +83,12 @@ export async function editSettings(projectRoot: string): Promise<boolean> {
     const firewall = cur("CLOOPY_FIREWALL", "on");
     const allowHost = cur("CLOOPY_ALLOW_HOST", "on");
     const port = cur("CLOOPY_SSH_PORT", DEFAULT_SSH_PORT);
+    const bind = cur("CLOOPY_SSH_BIND", "");
+    const bindLabel = bind === ""
+      ? "LAN 公開"
+      : bind === LOCAL_BIND
+      ? "ローカルのみ"
+      : bind;
     const tz = cur("CLOOPY_TIMEZONE", DEFAULT_TIMEZONE);
     const workspace = cur("CLOOPY_HOST_WORKSPACE", DEFAULT_WORKSPACE);
 
@@ -98,6 +105,7 @@ export async function editSettings(projectRoot: string): Promise<boolean> {
         { name: `Firewall          (${firewall})`, value: "firewall" },
         { name: `ホスト連携        (${allowHost})`, value: "host" },
         { name: `SSH ポート        (${port})`, value: "port" },
+        { name: `SSH 公開範囲      (${bindLabel})`, value: "bind" },
         { name: `タイムゾーン      (${tz})`, value: "tz" },
         { name: `ワークスペース    (${workspace})`, value: "workspace" },
         Select.separator("────────────────────────────"),
@@ -224,6 +232,47 @@ export async function editSettings(projectRoot: string): Promise<boolean> {
           setEnvVar(envPath, "CLOOPY_SSH_PORT", v);
           changed = true;
         }
+        break;
+      }
+
+      case "bind": {
+        // 手編集されたカスタム bind (特定 IP) を二択の既定 Enter で全 IF
+        // 公開に拡大しないよう、カスタム時は「維持」を選択肢に足して既定にする
+        const isCustomBind = bind !== "" && bind !== LOCAL_BIND;
+        const v = await Select.prompt({
+          message: "SSH 公開範囲",
+          default: isCustomBind
+            ? "keep"
+            : bind === LOCAL_BIND
+            ? "local"
+            : "lan",
+          options: [
+            ...(isCustomBind
+              ? [{ name: `現在のカスタム値を維持 (${bind})`, value: "keep" }]
+              : []),
+            {
+              name: "ローカルのみ — このマシンからのみ接続可 (127.0.0.1)",
+              value: "local",
+            },
+            {
+              name: "LAN 公開    — 他のマシンからも接続可 (全インターフェース)",
+              value: "lan",
+            },
+          ],
+        });
+        const newBind = v === "keep" ? bind : v === "local" ? LOCAL_BIND : "";
+        if (newBind !== bind) {
+          setEnvVar(envPath, "CLOOPY_SSH_BIND", newBind);
+          changed = true;
+        } else {
+          console.log(dim("  変更なし"));
+        }
+        console.log(
+          dim(
+            "  ※ 特定の IP に bind する場合は .env の CLOOPY_SSH_BIND を直接\n" +
+              "    編集してください (例: 192.168.1.5: — 末尾コロン必須)",
+          ),
+        );
         break;
       }
 

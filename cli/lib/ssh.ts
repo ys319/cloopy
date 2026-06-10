@@ -33,6 +33,16 @@ export function knownHostsPath(): string {
   return resolve(sshDir(), "known_hosts");
 }
 
+/**
+ * Get the per-remote known_hosts directory (~/.ssh/cloopy/known_hosts.d).
+ * Remote entries each get their own file here: the shared known_hosts is
+ * wholly overwritten by refreshKnownHosts on every local rebuild, which
+ * would silently drop remote host keys if they shared the file.
+ */
+export function knownHostsDir(): string {
+  return resolve(sshDir(), "known_hosts.d");
+}
+
 /** Get the main SSH config path (~/.ssh/config) */
 export function mainSshConfigPath(): string {
   return resolve(homeDir(), ".ssh", "config");
@@ -112,6 +122,11 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** SSH config needs forward slashes even on Windows. */
+function toSshPath(p: string): string {
+  return p.replaceAll("\\", "/");
+}
+
 /**
  * Write via temp file + rename so a crash mid-write can never leave a
  * truncated file. Both ~/.ssh/config and the Included cloopy config are
@@ -165,6 +180,26 @@ export function upsertHostBlock(
 }
 
 /**
+ * Remove a named Host block from the cloopy config content.
+ * Returns the content unchanged when the block is absent.
+ * Pure — exported for tests.
+ */
+export function removeHostBlock(existing: string, name: string): string {
+  const escaped = escapeRegExp(name);
+  // Leading \n* also consumes the separator before the block so a removal
+  // in the middle of the file doesn't leave a growing run of blank lines.
+  const blockRe = new RegExp(
+    `\\n*# --- ${escaped} ---\\nHost ${escaped}\\n[\\s\\S]*?(?=\\n+# ---|\\n*$)`,
+  );
+  if (!blockRe.test(existing)) return existing;
+  let result = existing.replace(blockRe, "");
+  result = result.replace(/^\n+/, "");
+  if (result.trim() === "") return "";
+  if (!result.endsWith("\n")) result += "\n";
+  return result;
+}
+
+/**
  * Prepend the cloopy Include directive when missing.
  * Returns the new content, or null when the directive is already present
  * (callers skip the write — the user's config is never rewritten needlessly).
@@ -178,41 +213,71 @@ export function ensureIncludeLine(
   return `# --- cloopy ---\n${includeLine}\n\n${mainContent}`;
 }
 
+export interface HostBlockOptions {
+  /** SSH HostName (default: "localhost" — the local container) */
+  hostName?: string;
+  /**
+   * IdentityFile path. undefined = the auto-generated cloopy key,
+   * null = omit the line entirely (ssh falls back to agent/default keys).
+   */
+  identityFile?: string | null;
+  /** UserKnownHostsFile path (default: the shared cloopy known_hosts) */
+  knownHostsFile?: string;
+}
+
+/**
+ * Build a cloopy-managed Host block. Pure given explicit options —
+ * exported for tests.
+ */
+export function buildHostBlock(
+  name: string,
+  port: string,
+  opts: HostBlockOptions = {},
+): string {
+  const identityFile = opts.identityFile === undefined
+    ? keyPath()
+    : opts.identityFile;
+  const lines = [
+    `# --- ${name} ---`,
+    `Host ${name}`,
+    `    HostName ${opts.hostName ?? "localhost"}`,
+    `    Port ${port}`,
+    `    User developer`,
+  ];
+  if (identityFile !== null) {
+    lines.push(`    IdentityFile ${toSshPath(identityFile)}`);
+  }
+  lines.push(
+    `    StrictHostKeyChecking accept-new`,
+    `    UserKnownHostsFile ${
+      toSshPath(opts.knownHostsFile ?? knownHostsPath())
+    }`,
+  );
+  return lines.join("\n");
+}
+
 /**
  * Write the cloopy SSH config file and ensure Include in main ~/.ssh/config.
  * Both writes are atomic (temp file + rename).
+ * Defaults target the local container (HostName localhost); remote profiles
+ * pass hostName/identityFile/knownHostsFile via opts.
  * @param port SSH port number as string
  * @param instanceName Name used as SSH Host (default: "cloopy")
  */
-export function injectSshConfig(port: string, instanceName = "cloopy"): void {
+export function injectSshConfig(
+  port: string,
+  instanceName = "cloopy",
+  opts: HostBlockOptions = {},
+): void {
   const dir = sshDir();
   Deno.mkdirSync(dir, { recursive: true });
 
-  // SSH config needs forward slashes even on Windows
-  const toSshPath = (p: string) => p.replaceAll("\\", "/");
+  const hostBlock = buildHostBlock(instanceName, port, opts);
 
-  // Build the new Host block for this instance
-  const hostBlock = [
-    `# --- ${instanceName} ---`,
-    `Host ${instanceName}`,
-    `    HostName localhost`,
-    `    Port ${port}`,
-    `    User developer`,
-    `    IdentityFile ${toSshPath(keyPath())}`,
-    `    StrictHostKeyChecking accept-new`,
-    `    UserKnownHostsFile ${toSshPath(knownHostsPath())}`,
-  ].join("\n");
-
-  // Read existing config and replace or append the Host block
-  const configPath = sshConfigPath();
-  let existing = "";
-  try {
-    existing = Deno.readTextFileSync(configPath);
-  } catch {
-    // File doesn't exist yet
-  }
+  // Read existing config (CRLF-normalized) and replace or append the block
+  const existing = readCloopyConfig();
   writeFileAtomic(
-    configPath,
+    sshConfigPath(),
     upsertHostBlock(existing, instanceName, hostBlock),
   );
 
@@ -236,6 +301,41 @@ export function injectSshConfig(port: string, instanceName = "cloopy"): void {
     writeFileAtomic(mainConfig, newContent);
   } else {
     console.log("[cloopy] SSH config Include already present, skipping");
+  }
+}
+
+/** True when the cloopy config content already contains a block for name. */
+export function hasHostBlock(content: string, name: string): boolean {
+  const escaped = escapeRegExp(name);
+  return new RegExp(`(^|\\n)# --- ${escaped} ---\\nHost ${escaped}\\n`)
+    .test(content);
+}
+
+/**
+ * Read the cloopy SSH config content ("" when missing).
+ * CRLF is normalized to LF: the block regexes in upsertHostBlock /
+ * removeHostBlock anchor on "\n", so a config hand-edited with a CRLF
+ * editor would otherwise make upsert duplicate blocks and remove a no-op.
+ * Our writes are always LF, and ssh accepts both.
+ */
+export function readCloopyConfig(): string {
+  try {
+    return Deno.readTextFileSync(sshConfigPath()).replaceAll("\r\n", "\n");
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Remove a named Host block from the cloopy SSH config file (atomic write).
+ * No-op when the file or the block doesn't exist.
+ */
+export function removeSshConfigEntry(name: string): void {
+  const existing = readCloopyConfig();
+  if (!existing) return;
+  const updated = removeHostBlock(existing, name);
+  if (updated !== existing) {
+    writeFileAtomic(sshConfigPath(), updated);
   }
 }
 

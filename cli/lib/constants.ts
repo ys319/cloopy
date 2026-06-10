@@ -10,6 +10,13 @@ export const DEFAULT_TIMEZONE = "Asia/Tokyo";
 /** デフォルトワークスペースパス */
 export const DEFAULT_WORKSPACE = "./workspace";
 
+/**
+ * SSH ポートを localhost のみに bind する CLOOPY_SSH_BIND 値。
+ * compose 側は `"${CLOOPY_SSH_BIND:-}${CLOOPY_SSH_PORT:-10022}:22"` のため
+ * 末尾コロンを含む。空文字 = 全インターフェース (Docker 既定の v4+v6)。
+ */
+export const LOCAL_BIND = "127.0.0.1:";
+
 /** docker compose --wait-timeout (秒) */
 export const COMPOSE_WAIT_TIMEOUT = "300";
 

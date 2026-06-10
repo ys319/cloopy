@@ -102,6 +102,27 @@ function checkEnvFile(): CheckResult {
         detail: `pubkey file missing: ${pubkeyFile}`,
       };
     }
+    // CLOOPY_SSH_BIND は末尾コロン込みの形式 ("127.0.0.1:")。コロン漏れは
+    // compose の port 文字列が壊れて up が不可解なエラーで落ちるため、
+    // ここで検出して setup (再質問で正しい値に書き直す) へ誘導する。
+    const bind = content.match(/^CLOOPY_SSH_BIND=(.*)$/m);
+    if (bind) {
+      const v = bind[1].trim();
+      const octetsOk = (ip: string) =>
+        ip.split(".").every((o) => /^\d{1,3}$/.test(o) && Number(o) <= 255);
+      const v4Ok = /^\d{1,3}(\.\d{1,3}){3}:$/.test(v) &&
+        octetsOk(v.slice(0, -1));
+      // compose の短縮構文はブラケット付き IPv6 bind ("[::1]:") も受理する
+      const v6Ok = /^\[[0-9A-Fa-f:.%]+\]:$/.test(v);
+      if (v !== "" && !v4Ok && !v6Ok) {
+        return {
+          name: ".env",
+          ok: false,
+          detail:
+            `CLOOPY_SSH_BIND is not "IPv4:" / "[IPv6]:" form (e.g. 127.0.0.1:): ${v}`,
+        };
+      }
+    }
     return { name: ".env", ok: true, detail: "configured" };
   } catch (e) {
     if (e instanceof Deno.errors.NotFound) {
@@ -257,6 +278,14 @@ export interface DoctorResult {
   needsEnv: boolean;
   /** イメージ未ビルドのみ → ビルド＋起動だけでよい */
   needsImage: boolean;
+  /** docker が利用可能 */
+  dockerOk: boolean;
+  /**
+   * docker バイナリ自体が見つからない (= リモート接続専用クライアントの
+   * 可能性)。デーモン停止 ("not responding") はここに含めない — Docker
+   * Desktop の起動忘れでリモート専用モードへ誘導しないため。
+   */
+  dockerMissing: boolean;
 }
 
 /**
@@ -271,8 +300,9 @@ export async function doctor(): Promise<DoctorResult> {
   const instanceName = envMap.get("CLOOPY_INSTANCE_NAME") ??
     DEFAULT_INSTANCE_NAME;
 
+  const dockerResult = await checkDocker();
   const results: CheckResult[] = [
-    await checkDocker(),
+    dockerResult,
     checkSshKey(),
     checkSshConfig(),
     checkEnvFile(),
@@ -312,5 +342,11 @@ export async function doctor(): Promise<DoctorResult> {
     console.log(green("[cloopy] All checks passed.\n"));
   }
 
-  return { needsSetup, needsEnv, needsImage };
+  return {
+    needsSetup,
+    needsEnv,
+    needsImage,
+    dockerOk: dockerResult.ok,
+    dockerMissing: dockerResult.detail === "not found",
+  };
 }
