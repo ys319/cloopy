@@ -8,8 +8,14 @@ LABEL org.opencontainers.image.title="cloopy" \
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# s6-overlay version
+# s6-overlay version + release tarball checksums. Pinned so a tampered or
+# swapped release asset fails the build instead of becoming PID 1. When
+# bumping the version, update all three from the release's *.sha256 files:
+# https://github.com/just-containers/s6-overlay/releases
 ARG S6_OVERLAY_VERSION=3.2.0.2
+ARG S6_OVERLAY_NOARCH_SHA256=6dbcde158a3e78b9bb141d7bcb5ccb421e563523babbe2c64470e76f4fd02dae
+ARG S6_OVERLAY_AARCH64_SHA256=8b22a2eaca4bf0b27a43d36e65c89d2701738f628d1abd0cea5569619f66f785
+ARG S6_OVERLAY_X86_64_SHA256=59289456ab1761e277bd456a95e737c06b03ede99158beb24f12b165a904f478
 
 # ==============================================================================
 # 1. System Dependencies
@@ -51,13 +57,17 @@ ENV LC_ALL=en_US.UTF-8
 # 2. s6-overlay Installation
 # ==============================================================================
 ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz /tmp/
-RUN tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz && rm /tmp/s6-overlay-noarch.tar.xz
+RUN echo "${S6_OVERLAY_NOARCH_SHA256}  /tmp/s6-overlay-noarch.tar.xz" | sha256sum -c - \
+    && tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz \
+    && rm /tmp/s6-overlay-noarch.tar.xz
 
 # Architecture-specific binary (auto-detect from TARGETARCH)
 ARG TARGETARCH
 RUN S6_ARCH=$(case "${TARGETARCH}" in arm64) echo "aarch64";; *) echo "x86_64";; esac) \
+    && S6_SHA256=$(case "${TARGETARCH}" in arm64) echo "${S6_OVERLAY_AARCH64_SHA256}";; *) echo "${S6_OVERLAY_X86_64_SHA256}";; esac) \
     && wget -q -O /tmp/s6-overlay-arch.tar.xz \
        "https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-${S6_ARCH}.tar.xz" \
+    && echo "${S6_SHA256}  /tmp/s6-overlay-arch.tar.xz" | sha256sum -c - \
     && tar -C / -Jxpf /tmp/s6-overlay-arch.tar.xz \
     && rm /tmp/s6-overlay-arch.tar.xz
 

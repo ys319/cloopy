@@ -5,14 +5,15 @@
 ## 優先度: 高（次回レビュー前に対応推奨）
 | ID | 軸 | タグ | 内容 | 推定コスト | 着手タイミング |
 |---|---|---|---|---|---|
-| W-B-1 + W-D-3 | 🟡 | 🙋 | `ssh.ts` injectSshConfig: 書き込み失敗時の巻き戻しなし + **テストゼロ**（~/.ssh/config 破損 = SSH 全滅に直結）。tmp 書き込み→rename のアトミック化 + マーカー処理のユニットテスト | 1日 | 高 |
-| W-C-3 | 🟡 | 🙋 | Dockerfile: s6-overlay tarball をチェックサム未検証で展開し PID 1 実行（供給鎖）。リリースの sha256 を ARG でピン留め | 1-2時間 + ビルド確認 | 高 |
+（高優先はすべて対応済み — 下の「対応済み」参照）
 | 実機検証 | - | - | ✅ **2026-06-10 確認済み**（macOS で UID 501→5001 の変更ブート: bind 3点の skip ログ確認・正常起動）。残: uCore 側は次回起動時に `ssh cloopy` 疎通を一応見る程度で OK | - | 済 |
 
 ### 対応済み（レビュー後の追補）
 | ID | 内容 | 対応 |
 |---|---|---|
-| E-C-1 | `chown -R /home/developer` の bind mount 再帰によるホスト所有権破壊 | ✅ /proc/self/mountinfo でホスト bind を find -prune 除外（named volume は対象維持・グロブ文字エスケープ込み）。fake mountinfo シミュレーション 17 アサーション + Opus 敵対的検証済み。**実機検証のみ残**（上の実機検証行参照） |
+| E-C-1 | `chown -R /home/developer` の bind mount 再帰によるホスト所有権破壊 | ✅ /proc/self/mountinfo でホスト bind を find -prune 除外（named volume は対象維持・グロブ文字エスケープ込み）。fake mountinfo シミュレーション 17 アサーション + Opus 敵対的検証 + **実機確認済み**（macOS UID 変更ブート） |
+| W-B-1 + W-D-3 | injectSshConfig の非アトミック書き込み + テストゼロ | ✅ tmp→rename のアトミック書き込み（0600）+ upsertHostBlock / ensureIncludeLine を純粋関数化しテスト 10 本追加。テストが末尾改行食いと RegExp 未エスケープの潜在バグ 2 件も検出・修正 |
+| W-C-3 | s6-overlay tarball のチェックサム未検証 | ✅ noarch / aarch64 / x86_64 の sha256 を ARG でピン留めし `sha256sum -c` で検証。値は公式リリースの .sha256 と実 tarball のローカルハッシュ計算の両方で照合済み。**次回 build（up --build で自動）が通ることだけ確認** |
 
 ## 優先度: 中
 | ID | 軸 | タグ | 内容 | 推定コスト | 着手タイミング |
