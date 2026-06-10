@@ -116,9 +116,9 @@ docker compose down            # 停止
 docker compose logs -f         # ログ確認
 ssh cloopy                     # SSH 接続
 
-# リセット（ホーム&Nixを初期化、ワークスペースは保持）
+# リセット（ホーム・Nix・SSHホスト鍵を初期化、ワークスペースは保持）
 docker compose down
-docker volume rm cloopy_home-data cloopy_nix-store
+docker volume rm cloopy_home-data cloopy_nix-store cloopy_ssh-config
 ```
 
 </details>

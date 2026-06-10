@@ -478,10 +478,24 @@ export async function manage(): Promise<void> {
         break;
       }
       case "reset": {
-        console.log(yellow("  すべての永続データが削除されます:"));
+        // `down -v` だと docker-compose.local.yml で定義された workspace-data
+        // （ユーザーの作業データ）まで削除してしまうため、消してよい
+        // ボリュームだけを名指しで削除する。
+        const resetEnv = readEnvFile(projectRoot);
+        const resetPrefix = resetEnv.get("CLOOPY_INSTANCE_NAME") ??
+          DEFAULT_INSTANCE_NAME;
+        const resetVolumes = [
+          `${resetPrefix}_home-data`,
+          `${resetPrefix}_nix-store`,
+          `${resetPrefix}_ssh-config`,
+        ];
+        console.log(yellow("  以下の永続データが削除されます:"));
         console.log("    - home-data (ホームディレクトリ)");
         console.log("    - nix-store (Nix/Devbox)");
         console.log("    - ssh-config (SSH ホスト鍵)");
+        if (resetEnv.get("CLOOPY_WORKSPACE_VOLUME") === "true") {
+          console.log(dim("    (workspace-data は保持されます)"));
+        }
         console.log("");
         const sure = await Confirm.prompt({
           message: "本当にリセットしますか？",
@@ -489,8 +503,26 @@ export async function manage(): Promise<void> {
         });
         if (sure) {
           console.log("[cloopy] 停止してボリュームを削除中...");
-          await compose(projectRoot, ["down", "-v"]);
-          console.log(green("[cloopy] 完了。「起動」で再作成できます。"));
+          await compose(projectRoot, ["down"]);
+          let resetOk = true;
+          for (const volume of resetVolumes) {
+            const rm = await new Deno.Command("docker", {
+              args: ["volume", "rm", volume],
+              stdout: "null",
+              stderr: "piped",
+            }).output();
+            if (rm.code !== 0) {
+              const msg = new TextDecoder().decode(rm.stderr).trim();
+              // 初回起動前などボリューム未作成の場合は正常扱い
+              if (!msg.includes("no such volume")) {
+                console.error(red(`[cloopy] ${volume} の削除に失敗: ${msg}`));
+                resetOk = false;
+              }
+            }
+          }
+          if (resetOk) {
+            console.log(green("[cloopy] 完了。「起動」で再作成できます。"));
+          }
         }
         break;
       }
