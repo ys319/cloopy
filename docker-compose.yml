@@ -52,8 +52,10 @@ services:
       - home-data:/home/developer
       - nix-store:/nix
     # NET_ADMIN lets init-firewall manage iptables inside the container.
-    # Coexists with no-new-privileges. Remove this to fully disable the
-    # firewall (the script then fails open and warns).
+    # Coexists with no-new-privileges. To disable filtering, prefer
+    # CLOOPY_FIREWALL=off (clean kill switch); removing NET_ADMIN also
+    # disables it, but only as a fail-open warning. Do not override cap_add
+    # in docker-compose.local.yml — that silently drops NET_ADMIN.
     cap_add:
       - NET_ADMIN
     security_opt:

@@ -45,7 +45,7 @@ s6-overlay (PID 1)
 ├── init-ssh-keys       (oneshot, depends: init-permissions) authorized_keys 配置・検証、sshd 設定
 ├── init-workspace-check(oneshot, depends: init-permissions) ワークスペース UID 不一致警告
 ├── init-firewall       (oneshot, depends: init-permissions) egress ローカル遮断
-├── svc-bootstrap       (oneshot, depends: init-permissions) Nix/Devbox/Volta
+├── svc-bootstrap       (oneshot, depends: init-permissions) Nix/Devbox
 └── svc-sshd            (longrun, depends: init-ssh-keys) SSH デーモン
 ```
 

@@ -39,6 +39,9 @@ export function getComposeFiles(projectRoot: string, quiet = false): string[] {
 
 /**
  * Run a docker compose command and wait for completion.
+ * Logs the local-override notice (getComposeFiles with quiet=false) — fine
+ * for user-initiated actions, use getComposeFiles(root, true) directly where
+ * silence is needed.
  * @param projectRoot Absolute path to the project root
  * @param subArgs Arguments passed after `docker compose -f ...`
  * @param options Set `inherit: true` to pipe stdin from the terminal

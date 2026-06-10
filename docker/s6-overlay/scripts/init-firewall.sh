@@ -82,9 +82,11 @@ fi
 # ------------------------------------------------------------------------------
 # Metadata / private network ranges to block (egress only)
 # ------------------------------------------------------------------------------
-# IPv4 — order among DROPs is irrelevant (all terminate), but every ACCEPT
-# below must come first. 100.100.100.200 (Alibaba IMDS) is technically already
-# inside 100.64.0.0/10, but kept explicit and first so it gets its own counter.
+# IPv4 — these DROPs are appended to CLOOPY-OUT *after* all ACCEPTs in
+# apply_v4 (lo / conntrack / sport 22 / host / DNS pin), so an earlier ACCEPT
+# always wins; order among the DROPs themselves is irrelevant (all terminate).
+# 100.100.100.200 (Alibaba IMDS) is technically already inside 100.64.0.0/10,
+# but kept explicit and first so it gets its own counter.
 DROP_V4=(
     169.254.0.0/16     # link-local incl. 169.254.169.254 (AWS/GCP/Azure IMDS)
     100.100.100.200/32 # Alibaba Cloud metadata (subset of 100.64.0.0/10 below)

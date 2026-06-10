@@ -111,7 +111,7 @@ CLOOPY_DNS_SECONDARY=1.0.0.2
 <summary>docker composeを直接使う場合</summary>
 
 ```bash
-docker compose up -d          # 起動
+docker compose up -d --build   # 起動（git pull 後も旧イメージで起動しないよう --build 推奨）
 docker compose down            # 停止
 docker compose logs -f         # ログ確認
 ssh cloopy                     # SSH 接続
@@ -131,6 +131,7 @@ SSH → svc-sshd (longrun)
      init-ssh-keys → init-permissions ← base
                           ↓ also depends
                      svc-bootstrap (oneshot: Nix/Devbox)
+                     init-firewall (oneshot: egress フィルタ)
                      init-workspace-check
 ```
 

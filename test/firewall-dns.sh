@@ -120,6 +120,8 @@ note "actual malware-domain blocking is the resolver's job (Cloudflare/Quad9) â€
 
 # ------------------------------------------------------------------------------
 hdr "Fallback mode: no CLOOPY_DNS_* -> no :53 pin DROP (DNS must not break)"
+# No --add-host here on purpose: this container only verifies the absence of
+# the :53 pin DROP; host.docker.internal handling is covered above.
 docker run -d --name "$CFB" --cap-add NET_ADMIN \
   -e CLOOPY_FIREWALL=on \
   --entrypoint sleep "$IMG" infinity >/dev/null
