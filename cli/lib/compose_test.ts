@@ -44,12 +44,35 @@ Deno.test("getComposeFiles: includes local override when present", () => {
 
 Deno.test("getComposeFiles: quiet=true suppresses log", () => {
   const { root, cleanup } = makeTmpProject();
+  const logged: unknown[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => {
+    logged.push(args);
+  };
   try {
     Deno.writeTextFileSync(resolve(root, "docker-compose.local.yml"), "");
-    // Should not throw or log — just verify it returns correct result
     const files = getComposeFiles(root, true);
     assertEquals(files.length, 4);
+    assertEquals(logged.length, 0);
   } finally {
+    console.log = original;
+    cleanup();
+  }
+});
+
+Deno.test("getComposeFiles: quiet=false logs the local override notice", () => {
+  const { root, cleanup } = makeTmpProject();
+  const logged: unknown[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => {
+    logged.push(args);
+  };
+  try {
+    Deno.writeTextFileSync(resolve(root, "docker-compose.local.yml"), "");
+    getComposeFiles(root);
+    assertEquals(logged.length, 1);
+  } finally {
+    console.log = original;
     cleanup();
   }
 });
