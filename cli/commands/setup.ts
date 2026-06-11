@@ -23,6 +23,7 @@ import {
   DEFAULT_SSH_PORT,
   DEFAULT_TIMEZONE,
   DEFAULT_WORKSPACE,
+  INSTANCE_NAME_PATTERN,
   LOCAL_BIND,
 } from "../lib/constants.ts";
 import { resolve } from "@std/path";
@@ -110,28 +111,6 @@ export async function setup(): Promise<void> {
   // --------------------------------------------------------------------------
   console.log(bold("--- ステップ 1: SSH 鍵 ---"));
   await ensureKeyPair();
-
-  // コンテナへ渡す authorized_keys 束ファイル（自動生成鍵 + keys.json の
-  // 追加鍵）を再生成する。追加鍵は「SSH 鍵管理」メニューで管理。
-  let extraKeys: StoredKey[] = [];
-  try {
-    extraKeys = loadKeyStore().keys;
-  } catch (e) {
-    console.error(
-      yellow(`[cloopy] 警告: ${e instanceof Error ? e.message : e}`),
-    );
-    console.error(
-      yellow("[cloopy] 追加鍵を読み込めないため、自動生成鍵のみで構成します"),
-    );
-  }
-  rebuildAuthorizedKeys(extraKeys);
-  if (extraKeys.length > 0) {
-    console.log(
-      dim(
-        `[cloopy] 追加鍵 ${extraKeys.length} 件を authorized_keys に含めました`,
-      ),
-    );
-  }
   console.log("");
 
   // --------------------------------------------------------------------------
@@ -139,11 +118,6 @@ export async function setup(): Promise<void> {
   // --------------------------------------------------------------------------
   console.log(bold("--- ステップ 2: 環境設定 ---"));
   const envPath = ensureEnvFile(projectRoot);
-
-  // 自動設定 (マーカーセクションに配置)
-  // 旧バージョンの .env は id_ed25519.pub を直接指すが、setEnvVar が
-  // その場で束ファイルパスへ上書きするため再 setup だけで移行が完了する
-  setEnvVar(envPath, "CLOOPY_PUBKEY_PATH", authorizedKeysPath(), true);
 
   if (Deno.build.os !== "windows") {
     const uid = new Deno.Command("id", { args: ["-u"], stdout: "piped" });
@@ -181,7 +155,7 @@ export async function setup(): Promise<void> {
     hint: "SSH のホスト名とボリューム名の接頭辞になります",
     default: currentInstance,
     validate: (v) => {
-      if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(v)) {
+      if (!INSTANCE_NAME_PATTERN.test(v)) {
         return "英字で始まり、英数字・ハイフン・アンダースコアのみ使用できます";
       }
       if (remoteNames.includes(v)) {
@@ -193,6 +167,39 @@ export async function setup(): Promise<void> {
   if (instanceInput !== currentInstance) {
     setEnvVar(envPath, "CLOOPY_INSTANCE_NAME", instanceInput);
   }
+
+  // コンテナへ渡す authorized_keys 束ファイル（自動生成鍵 + keys.json の
+  // 追加鍵）を再生成する。追加鍵は「SSH 鍵管理」メニューで管理。store / 束は
+  // インスタンスごとなので、名前が確定したここで行う。
+  let extraKeys: StoredKey[] = [];
+  try {
+    extraKeys = loadKeyStore(instanceInput).keys;
+  } catch (e) {
+    console.error(
+      yellow(`[cloopy] 警告: ${e instanceof Error ? e.message : e}`),
+    );
+    console.error(
+      yellow("[cloopy] 追加鍵を読み込めないため、自動生成鍵のみで構成します"),
+    );
+  }
+  rebuildAuthorizedKeys(instanceInput, extraKeys);
+  if (extraKeys.length > 0) {
+    console.log(
+      dim(
+        `[cloopy] 追加鍵 ${extraKeys.length} 件を authorized_keys に含めました`,
+      ),
+    );
+  }
+
+  // 旧バージョンの .env は id_ed25519.pub やグローバル束を直接指すが、
+  // setEnvVar がその場でインスタンス束のパスへ上書きするため再 setup
+  // だけで移行が完了する (マーカーセクションに配置)
+  setEnvVar(
+    envPath,
+    "CLOOPY_PUBKEY_PATH",
+    authorizedKeysPath(instanceInput),
+    true,
+  );
 
   const currentPort = savedEnv.get("CLOOPY_SSH_PORT") ??
     Deno.env.get("CLOOPY_SSH_PORT") ?? DEFAULT_SSH_PORT;

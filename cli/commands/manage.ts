@@ -54,7 +54,7 @@ function printCurrentSettings(projectRoot: string, instanceName: string): void {
   const cur = (k: string, d: string) => env.get(k) ?? d;
   let keyCount = "?";
   try {
-    keyCount = String(loadKeyStore().keys.length);
+    keyCount = String(loadKeyStore(instanceName).keys.length);
   } catch {
     // 破損時は ? のまま表示（詳細エラーは鍵管理を開いたときに出る）
   }
@@ -96,8 +96,6 @@ function printCurrentSettings(projectRoot: string, instanceName: string): void {
 
 export async function manage(): Promise<void> {
   const projectRoot = getProjectRoot();
-  const env = readEnvFile(projectRoot);
-  const instanceName = env.get("CLOOPY_INSTANCE_NAME") ?? DEFAULT_INSTANCE_NAME;
 
   // 鍵管理で変更を保存したが稼働中コンテナへ未反映の状態。単一ファイル
   // bind mount は rename 後の新 inode を追わず、構成変更なしの `up` は
@@ -111,6 +109,11 @@ export async function manage(): Promise<void> {
       : [...COMPOSE_UP_ARGS];
 
   while (true) {
+    // 「再設定」がインスタンス名やポートを変えるため毎周で読み直す。
+    // 古い名前のままだと鍵管理が旧インスタンスの store/束へ書いてしまう
+    const env = readEnvFile(projectRoot);
+    const instanceName = env.get("CLOOPY_INSTANCE_NAME") ??
+      DEFAULT_INSTANCE_NAME;
     const status = await getStatus(projectRoot);
 
     console.clear();
@@ -378,13 +381,21 @@ export async function manage(): Promise<void> {
         break;
       }
       case "keys": {
-        const changed = await manageKeys();
+        const changed = await manageKeys(instanceName);
         if (!changed) break;
-        // 旧 .env (id_ed25519.pub 直指し) からの移行: 束ファイルへ向け替える
+        // 旧 .env (id_ed25519.pub やグローバル束の直指し) からの移行:
+        // インスタンス束のパスへ向け替える
         const keysEnv = readEnvFile(projectRoot);
-        if (keysEnv.get("CLOOPY_PUBKEY_PATH") !== authorizedKeysPath()) {
+        if (
+          keysEnv.get("CLOOPY_PUBKEY_PATH") !== authorizedKeysPath(instanceName)
+        ) {
           const envPath = ensureEnvFile(projectRoot);
-          setEnvVar(envPath, "CLOOPY_PUBKEY_PATH", authorizedKeysPath(), true);
+          setEnvVar(
+            envPath,
+            "CLOOPY_PUBKEY_PATH",
+            authorizedKeysPath(instanceName),
+            true,
+          );
         }
         if (isRunning) {
           const apply = await Confirm.prompt({

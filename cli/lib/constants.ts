@@ -1,6 +1,14 @@
 /** デフォルトインスタンス名 */
 export const DEFAULT_INSTANCE_NAME = "cloopy";
 
+/**
+ * インスタンス名の形式。setup の入力検証と、~/.ssh/cloopy/instances/<名前>/
+ * のパス構築 (cli/lib/keys.ts) の両方で使う。後者は .env 手編集で
+ * CLOOPY_INSTANCE_NAME に ../ 等を入れられた場合に instances/ の外へ
+ * 書き込むのを防ぐ防壁を兼ねる。
+ */
+export const INSTANCE_NAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
+
 /** デフォルト SSH ポート */
 export const DEFAULT_SSH_PORT = "10022";
 

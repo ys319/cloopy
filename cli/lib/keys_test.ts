@@ -253,13 +253,21 @@ function withTempHome(fn: (tmp: string) => void): void {
 }
 
 Deno.test({
-  name: "keyStore: 往復保存・未作成は空 store",
+  name: "keyStore: 往復保存・未作成は空 store（インスタンス別パス）",
   ignore: isWindows,
   fn() {
-    withTempHome(() => {
-      assertEquals(loadKeyStore().keys.length, 0);
-      saveKeyStore({ version: 1, keys: [storedKey(ED25519_A, "manual")] });
-      const loaded = loadKeyStore();
+    withTempHome((tmp) => {
+      assertEquals(loadKeyStore("cloopy").keys.length, 0);
+      saveKeyStore("cloopy", {
+        version: 1,
+        keys: [storedKey(ED25519_A, "manual")],
+      });
+      // store はインスタンスディレクトリ配下に置かれる
+      assertEquals(
+        keyStorePath("cloopy"),
+        resolve(tmp, ".ssh", "cloopy", "instances", "cloopy", "keys.json"),
+      );
+      const loaded = loadKeyStore("cloopy");
       assertEquals(loaded.keys.length, 1);
       assertEquals(loaded.keys[0].label, "manual");
       assertEquals(loaded.keys[0].base64, field(ED25519_A, 1));
@@ -268,15 +276,83 @@ Deno.test({
 });
 
 Deno.test({
+  name: "keyStore: インスタンスごとに独立（片方への追加が他方に波及しない）",
+  ignore: isWindows,
+  fn() {
+    withTempHome(() => {
+      saveKeyStore("alpha", { version: 1, keys: [storedKey(ED25519_A)] });
+      saveKeyStore("beta", { version: 1, keys: [] });
+      assertEquals(loadKeyStore("alpha").keys.length, 1);
+      assertEquals(loadKeyStore("beta").keys.length, 0);
+    });
+  },
+});
+
+Deno.test({
   name: "keyStore: 破損 JSON / 形式不正は明示エラー（空扱いにしない）",
+  ignore: isWindows,
+  fn() {
+    withTempHome(() => {
+      saveKeyStore("cloopy", { version: 1, keys: [] });
+      Deno.writeTextFileSync(keyStorePath("cloopy"), "{ broken");
+      assertThrows(() => loadKeyStore("cloopy"), Error, "JSON");
+      Deno.writeTextFileSync(keyStorePath("cloopy"), `{"version":2,"keys":[]}`);
+      assertThrows(() => loadKeyStore("cloopy"), Error, "形式が不正");
+    });
+  },
+});
+
+Deno.test({
+  name:
+    "keyStore: 旧グローバル store を初回アクセスでコピー移行（レガシーは残置）",
+  ignore: isWindows,
+  fn() {
+    withTempHome((tmp) => {
+      const legacyPath = resolve(tmp, ".ssh", "cloopy", "keys.json");
+      Deno.mkdirSync(resolve(tmp, ".ssh", "cloopy"), { recursive: true });
+      Deno.writeTextFileSync(
+        legacyPath,
+        JSON.stringify({
+          version: 1,
+          keys: [storedKey(ED25519_A, "legacy")],
+        }),
+      );
+
+      // 初回ロード: レガシーの内容が返り、インスタンス store が作成される
+      const migrated = loadKeyStore("cloopy");
+      assertEquals(migrated.keys.length, 1);
+      assertEquals(migrated.keys[0].label, "legacy");
+      assertEquals(Deno.statSync(keyStorePath("cloopy")).isFile, true);
+      // レガシーは消さない（別インスタンスの移行元として残す）
+      assertEquals(Deno.statSync(legacyPath).isFile, true);
+      // 移行が作るのは store のみ — 束の生成は setup / 鍵管理の責務
+      assertThrows(() => Deno.statSync(authorizedKeysPath("cloopy")));
+
+      // 移行後は独立: レガシーを書き換えてもインスタンス側は変わらない
+      Deno.writeTextFileSync(
+        legacyPath,
+        JSON.stringify({ version: 1, keys: [] }),
+      );
+      assertEquals(loadKeyStore("cloopy").keys.length, 1);
+      // 別インスタンスは（書き換え後の）レガシーから改めて移行する
+      assertEquals(loadKeyStore("second").keys.length, 0);
+    });
+  },
+});
+
+Deno.test({
+  name: "keyStore: レガシー store が破損していても明示エラー（空扱いにしない）",
   ignore: isWindows,
   fn() {
     withTempHome((tmp) => {
       Deno.mkdirSync(resolve(tmp, ".ssh", "cloopy"), { recursive: true });
-      Deno.writeTextFileSync(keyStorePath(), "{ broken");
-      assertThrows(() => loadKeyStore(), Error, "JSON");
-      Deno.writeTextFileSync(keyStorePath(), `{"version":2,"keys":[]}`);
-      assertThrows(() => loadKeyStore(), Error, "形式が不正");
+      Deno.writeTextFileSync(
+        resolve(tmp, ".ssh", "cloopy", "keys.json"),
+        "{ broken",
+      );
+      assertThrows(() => loadKeyStore("cloopy"), Error, "JSON");
+      // 破損レガシーからインスタンス store を作らない
+      assertThrows(() => Deno.statSync(keyStorePath("cloopy")));
     });
   },
 });
@@ -289,14 +365,18 @@ Deno.test({
       const dir = resolve(tmp, ".ssh", "cloopy");
       Deno.mkdirSync(dir, { recursive: true });
       Deno.writeTextFileSync(resolve(dir, "id_ed25519.pub"), ED25519_A + "\n");
-      saveKeyStore({
+      saveKeyStore("cloopy", {
         version: 1,
         keys: [storedKey(ED25519_B, "github:foo")],
       });
 
-      const count = rebuildAuthorizedKeys();
+      const count = rebuildAuthorizedKeys("cloopy");
       assertEquals(count, 1);
-      const bundle = Deno.readTextFileSync(authorizedKeysPath());
+      assertEquals(
+        authorizedKeysPath("cloopy"),
+        resolve(dir, "instances", "cloopy", "authorized_keys"),
+      );
+      const bundle = Deno.readTextFileSync(authorizedKeysPath("cloopy"));
       const keyLines = bundle.split("\n").filter((l) =>
         l && !l.startsWith("#")
       );
@@ -305,15 +385,65 @@ Deno.test({
       assertStringIncludes(keyLines[1], "github:foo");
 
       // 一時ファイルの残骸なし
-      for (const entry of Deno.readDirSync(dir)) {
+      for (
+        const entry of Deno.readDirSync(resolve(dir, "instances", "cloopy"))
+      ) {
         assertEquals(entry.name.endsWith(".tmp~"), false, entry.name);
       }
 
       // 束ファイルは 0600 (writeFileAtomic の回帰防止)
-      const st = Deno.statSync(authorizedKeysPath());
+      const st = Deno.statSync(authorizedKeysPath("cloopy"));
       assertEquals(st.mode! & 0o777, 0o600);
+
+      // instances ツリーは 0700 (インスタンス名の列挙も他ユーザーに許さない)
+      for (
+        const d of [
+          resolve(dir, "instances"),
+          resolve(dir, "instances", "cloopy"),
+        ]
+      ) {
+        assertEquals(Deno.statSync(d).mode! & 0o777, 0o700, d);
+      }
     });
   },
+});
+
+Deno.test({
+  name: "rebuildAuthorizedKeys: keys 省略時はレガシー移行込みで store を読む",
+  ignore: isWindows,
+  fn() {
+    withTempHome((tmp) => {
+      const dir = resolve(tmp, ".ssh", "cloopy");
+      Deno.mkdirSync(dir, { recursive: true });
+      Deno.writeTextFileSync(resolve(dir, "id_ed25519.pub"), ED25519_A + "\n");
+      // インスタンス store なし・レガシーのみの状態
+      Deno.writeTextFileSync(
+        resolve(dir, "keys.json"),
+        JSON.stringify({
+          version: 1,
+          keys: [storedKey(ED25519_B, "legacy-key")],
+        }),
+      );
+
+      const count = rebuildAuthorizedKeys("cloopy");
+      assertEquals(count, 1);
+      assertStringIncludes(
+        Deno.readTextFileSync(authorizedKeysPath("cloopy")),
+        "legacy-key",
+      );
+      // 移行も完了している
+      assertEquals(Deno.statSync(keyStorePath("cloopy")).isFile, true);
+    });
+  },
+});
+
+Deno.test("instanceKeysDir: 不正なインスタンス名はパス構築前に拒否", () => {
+  // .env 手編集で CLOOPY_INSTANCE_NAME に何が入っていても instances/ の
+  // 外へ書き込まないこと (resolve は ../ を畳んでしまう)
+  for (const bad of ["../evil", "..", "a/b", "/abs", "", "1abc", "a b"]) {
+    assertThrows(() => keyStorePath(bad), Error, "インスタンス名", bad);
+  }
+  assertStringIncludes(keyStorePath("dev-2"), "instances");
 });
 
 Deno.test({
@@ -321,9 +451,9 @@ Deno.test({
   ignore: isWindows,
   fn() {
     withTempHome(() => {
-      assertThrows(() => rebuildAuthorizedKeys(), Error, "setup");
+      assertThrows(() => rebuildAuthorizedKeys("cloopy"), Error, "setup");
       // 束ファイルは生成されていない
-      assertThrows(() => Deno.statSync(authorizedKeysPath()));
+      assertThrows(() => Deno.statSync(authorizedKeysPath("cloopy")));
     });
   },
 });

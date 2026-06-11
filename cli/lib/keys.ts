@@ -1,4 +1,5 @@
 import { resolve } from "@std/path";
+import { INSTANCE_NAME_PATTERN } from "./constants.ts";
 import { pubKeyPath, sshDir, writeFileAtomic } from "./ssh.ts";
 
 // ==============================================================================
@@ -8,15 +9,42 @@ import { pubKeyPath, sshDir, writeFileAtomic } from "./ssh.ts";
 // authorized_keys 束ファイルは「自動生成鍵 + store の追加鍵」から毎回再生成する。
 // 束ファイルは CLOOPY_PUBKEY_PATH 経由で /etc/cloopy/authorized_keys に
 // :ro ステージされ、init-ssh-keys が毎起動コピーする（Docker 側変更なし）。
+//
+// store / 束はインスタンスごとに ~/.ssh/cloopy/instances/<名前>/ へ分離する
+// （自動生成鍵 id_ed25519 は CLI 自身の接続性の生命線なので全インスタンス共有）。
+// 旧グローバル store (~/.ssh/cloopy/keys.json) は初回アクセス時にインスタンス側へ
+// コピー移行する。レガシーは残置 — 別チェックアウトの他インスタンスも同じ
+// ファイルから移行するため、最初の 1 つが消すと残りの鍵が黙って失われる。
 // ==============================================================================
 
-/** Get the managed authorized_keys bundle path (~/.ssh/cloopy/authorized_keys) */
-export function authorizedKeysPath(): string {
-  return resolve(sshDir(), "authorized_keys");
+/**
+ * Get the per-instance key directory (~/.ssh/cloopy/instances/<name>).
+ * The name is re-validated here even though setup validates its prompt input:
+ * a hand-edited .env can carry any string (e.g. "../../evil"), and resolve()
+ * would happily walk out of the instances tree with it.
+ */
+export function instanceKeysDir(instanceName: string): string {
+  if (!INSTANCE_NAME_PATTERN.test(instanceName)) {
+    throw new Error(
+      `インスタンス名が不正です: "${instanceName}" ` +
+        `(.env の CLOOPY_INSTANCE_NAME を確認するか、再 setup してください)`,
+    );
+  }
+  return resolve(sshDir(), "instances", instanceName);
 }
 
-/** Get the key metadata store path (~/.ssh/cloopy/keys.json) */
-export function keyStorePath(): string {
+/** Get the managed authorized_keys bundle path for an instance */
+export function authorizedKeysPath(instanceName: string): string {
+  return resolve(instanceKeysDir(instanceName), "authorized_keys");
+}
+
+/** Get the key metadata store path for an instance */
+export function keyStorePath(instanceName: string): string {
+  return resolve(instanceKeysDir(instanceName), "keys.json");
+}
+
+/** Pre-separation global store path (migration source only) */
+function legacyKeyStorePath(): string {
   return resolve(sshDir(), "keys.json");
 }
 
@@ -194,25 +222,14 @@ export async function fingerprintSha256(base64: string): Promise<string> {
   return "SHA256:" + btoa(bin).replace(/=+$/, "");
 }
 
-/**
- * Load the key store. A missing file is an empty store; a corrupt file is an
- * ERROR (never silently treated as empty — that would drop the user's keys
- * from the next bundle rebuild).
- */
-export function loadKeyStore(): KeyStore {
-  let raw: string;
-  try {
-    raw = Deno.readTextFileSync(keyStorePath());
-  } catch (e) {
-    if (e instanceof Deno.errors.NotFound) return { version: 1, keys: [] };
-    throw e;
-  }
+/** Parse and validate a key store JSON text (path is for error messages). */
+function parseKeyStore(raw: string, path: string): KeyStore {
   let data: unknown;
   try {
     data = JSON.parse(raw);
   } catch {
     throw new Error(
-      `鍵 store (${keyStorePath()}) が JSON として読めません。` +
+      `鍵 store (${path}) が JSON として読めません。` +
         `修復するか削除してから再実行してください`,
     );
   }
@@ -226,7 +243,7 @@ export function loadKeyStore(): KeyStore {
     )
   ) {
     throw new Error(
-      `鍵 store (${keyStorePath()}) の形式が不正です。` +
+      `鍵 store (${path}) の形式が不正です。` +
         `修復するか削除してから再実行してください`,
     );
   }
@@ -238,10 +255,47 @@ export function loadKeyStore(): KeyStore {
   return store;
 }
 
-/** Save the key store (atomic, 0600). */
-export function saveKeyStore(store: KeyStore): void {
-  Deno.mkdirSync(sshDir(), { recursive: true });
-  writeFileAtomic(keyStorePath(), JSON.stringify(store, null, 2) + "\n");
+/**
+ * Load an instance's key store. A missing file is an empty store; a corrupt
+ * file is an ERROR (never silently treated as empty — that would drop the
+ * user's keys from the next bundle rebuild).
+ *
+ * If the instance store does not exist but the pre-separation global store
+ * does, the global store is copied into the instance directory (one-time
+ * migration; the legacy file is left in place for other instances).
+ */
+export function loadKeyStore(instanceName: string): KeyStore {
+  const path = keyStorePath(instanceName);
+  let raw: string;
+  try {
+    raw = Deno.readTextFileSync(path);
+  } catch (e) {
+    if (!(e instanceof Deno.errors.NotFound)) throw e;
+    let legacyRaw: string;
+    try {
+      legacyRaw = Deno.readTextFileSync(legacyKeyStorePath());
+    } catch (le) {
+      if (le instanceof Deno.errors.NotFound) return { version: 1, keys: [] };
+      throw le;
+    }
+    const migrated = parseKeyStore(legacyRaw, legacyKeyStorePath());
+    saveKeyStore(instanceName, migrated);
+    return migrated;
+  }
+  return parseKeyStore(raw, path);
+}
+
+/** Save an instance's key store (atomic, 0600). */
+export function saveKeyStore(instanceName: string, store: KeyStore): void {
+  // 0700: ~/.ssh 慣習に合わせ、インスタンス名の列挙も他ユーザーに許さない
+  Deno.mkdirSync(instanceKeysDir(instanceName), {
+    recursive: true,
+    mode: 0o700,
+  });
+  writeFileAtomic(
+    keyStorePath(instanceName),
+    JSON.stringify(store, null, 2) + "\n",
+  );
 }
 
 /**
@@ -265,13 +319,16 @@ export function buildAuthorizedKeysContent(
 }
 
 /**
- * Regenerate the authorized_keys bundle from the auto-generated public key
- * plus the given extra keys (defaults to the store contents). The container
- * boot (init-ssh-keys) refuses an empty staged file, so this throws rather
- * than write a bundle without the auto key.
+ * Regenerate an instance's authorized_keys bundle from the auto-generated
+ * public key plus the given extra keys (defaults to the instance's store
+ * contents). The container boot (init-ssh-keys) refuses an empty staged file,
+ * so this throws rather than write a bundle without the auto key.
  */
-export function rebuildAuthorizedKeys(keys?: StoredKey[]): number {
-  const extra = keys ?? loadKeyStore().keys;
+export function rebuildAuthorizedKeys(
+  instanceName: string,
+  keys?: StoredKey[],
+): number {
+  const extra = keys ?? loadKeyStore(instanceName).keys;
   let autoKey: string;
   try {
     autoKey = Deno.readTextFileSync(pubKeyPath()).trim();
@@ -285,9 +342,12 @@ export function rebuildAuthorizedKeys(keys?: StoredKey[]): number {
       `自動生成鍵 (${pubKeyPath()}) が空です。先に setup を実行してください`,
     );
   }
-  Deno.mkdirSync(sshDir(), { recursive: true });
+  Deno.mkdirSync(instanceKeysDir(instanceName), {
+    recursive: true,
+    mode: 0o700,
+  });
   writeFileAtomic(
-    authorizedKeysPath(),
+    authorizedKeysPath(instanceName),
     buildAuthorizedKeysContent(autoKey, extra),
   );
   return extra.length;

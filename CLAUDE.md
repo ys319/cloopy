@@ -70,20 +70,31 @@ docker-compose.local.yml の追加 bind 等）を除外する。named volume
 workspace-data ボリューム構成で PUID≠1000 でも書き込めるようにするため。
 コンテナ内で authorized_keys を直接編集しても次回起動で上書きされる点に注意。
 
-#### SSH 鍵管理（複数鍵）
+#### SSH 鍵管理（複数鍵・インスタンス分離）
 
-`CLOOPY_PUBKEY_PATH` は CLI 管理の束ファイル `~/.ssh/cloopy/authorized_keys`
-（自動生成鍵 + 追加鍵）を指す。鍵の真実は `~/.ssh/cloopy/keys.json`（メタ情報
+`CLOOPY_PUBKEY_PATH` は CLI 管理の束ファイル
+`~/.ssh/cloopy/instances/<インスタンス名>/authorized_keys`
+（自動生成鍵 + 追加鍵）を指す。鍵の真実は同ディレクトリの `keys.json`（メタ情報
 store、`cli/lib/keys.ts`）で、束ファイルは setup と「SSH 鍵管理」メニュー
-（`cli/commands/keys.ts`）が毎回そこから再生成する。追加方法は貼り付け／
-ファイル／GitHub `.keys` 取得（HTTPS 強制・ユーザー名検証・指紋確認後に追加）。
-自動生成鍵は常に束の先頭で削除不可（CLI 自身の接続性の生命線）。
+（`cli/commands/keys.ts`）が毎回そこから再生成する。追加鍵はインスタンスごとに
+独立し、自動生成鍵（`~/.ssh/cloopy/id_ed25519`）だけは CLI 自身の接続性の
+生命線として全インスタンス共有。追加方法は貼り付け／ファイル／GitHub `.keys`
+取得（HTTPS 強制・ユーザー名検証・指紋確認後に追加）。自動生成鍵は常に束の
+先頭で削除不可。
+
+旧グローバル store（`~/.ssh/cloopy/keys.json`、分離前の構成）は `loadKeyStore`
+が初回アクセス時にインスタンス側へコピー移行する。レガシーファイルは残置 —
+別チェックアウトの他インスタンスも同じファイルから移行するため、消すと残りの
+鍵が黙って失われる。副作用として、移行後に作られた新インスタンスもレガシーが
+残っている限りその鍵を継承する（ユーザーは ~/.ssh/cloopy を定期的に作り直す
+運用なので許容）。
 
 鍵変更の反映は **`up --force-recreate`**（鍵管理メニューが案内する）。束ファイル
 はアトミック書き込み（tmp→rename）なので、単一ファイル bind mount の inode が
 旧ファイルに固定されたままになり、稼働中コンテナへの `compose up`（構成変更
-なし＝no-op）では反映されないため。旧 `.env`（`id_ed25519.pub` 直指し）は
-再 setup または鍵管理メニューの変更時に束ファイルパスへ自動移行される。
+なし＝no-op）では反映されないため。旧 `.env`（`id_ed25519.pub` やグローバル束の
+直指し）は再 setup または鍵管理メニューの変更時にインスタンス束のパスへ自動移行
+される。
 
 運用上の注意:
 

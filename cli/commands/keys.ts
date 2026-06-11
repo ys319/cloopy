@@ -46,6 +46,7 @@ async function describeKey(
  * regenerate the bundle. Returns the number of keys actually added.
  */
 async function confirmAndAdd(
+  instanceName: string,
   store: KeyStore,
   autoKey: ParsedKey,
   keys: ParsedKey[],
@@ -100,19 +101,20 @@ async function confirmAndAdd(
   }
   // store (真実) を先に確定してから束を再生成する。束の書き込みが失敗しても
   // 呼び出し元の catch が store を読み直し、次回の鍵操作や setup で束は再整合する
-  saveKeyStore(store);
-  rebuildAuthorizedKeys(store.keys);
+  saveKeyStore(instanceName, store);
+  rebuildAuthorizedKeys(instanceName, store.keys);
   console.log(green(`[cloopy] ${fresh.length} 件の鍵を追加しました`));
   return fresh.length;
 }
 
 /**
- * Interactive SSH key management. The auto-generated key is cloopy's own
+ * Interactive SSH key management for one instance (extra keys live in
+ * ~/.ssh/cloopy/instances/<name>/). The auto-generated key is cloopy's own
  * connectivity guarantee — it is always listed, always first in the bundle,
  * and can never be deleted here.
  * @returns true if the key set changed (caller should offer to apply it)
  */
-export async function manageKeys(): Promise<boolean> {
+export async function manageKeys(instanceName: string): Promise<boolean> {
   let autoKeyLine: string;
   try {
     autoKeyLine = Deno.readTextFileSync(pubKeyPath()).trim();
@@ -137,7 +139,7 @@ export async function manageKeys(): Promise<boolean> {
 
   let store: KeyStore;
   try {
-    store = loadKeyStore();
+    store = loadKeyStore(instanceName);
   } catch (e) {
     console.error(red(`[cloopy] ${errMsg(e)}`));
     return false;
@@ -147,7 +149,7 @@ export async function manageKeys(): Promise<boolean> {
 
   while (true) {
     console.log("");
-    console.log(bold(cyan("  SSH 鍵管理")));
+    console.log(bold(cyan(`  SSH 鍵管理 [${instanceName}]`)));
     console.log(
       dim(
         `  自動生成鍵 + 追加鍵 ${store.keys.length} 件 (反映はコンテナ再作成時)`,
@@ -202,7 +204,10 @@ export async function manageKeys(): Promise<boolean> {
               default: "",
             })).trim();
           }
-          if (await confirmAndAdd(store, autoKey, [r.key], label) > 0) {
+          if (
+            await confirmAndAdd(instanceName, store, autoKey, [r.key], label) >
+              0
+          ) {
             changed = true;
           }
           break;
@@ -236,7 +241,7 @@ export async function manageKeys(): Promise<boolean> {
             console.error(red("[cloopy] 有効な公開鍵が見つかりませんでした"));
             break;
           }
-          if (await confirmAndAdd(store, autoKey, keys, "") > 0) {
+          if (await confirmAndAdd(instanceName, store, autoKey, keys, "") > 0) {
             changed = true;
           }
           break;
@@ -275,6 +280,7 @@ export async function manageKeys(): Promise<boolean> {
           }
           if (
             await confirmAndAdd(
+              instanceName,
               store,
               autoKey,
               result.keys,
@@ -317,8 +323,8 @@ export async function manageKeys(): Promise<boolean> {
           if (!sure) break;
           store.keys.splice(idx, 1);
           // 追加時と同じく store 先行 (束の失敗は次回の再生成で整合する)
-          saveKeyStore(store);
-          rebuildAuthorizedKeys(store.keys);
+          saveKeyStore(instanceName, store);
+          rebuildAuthorizedKeys(instanceName, store.keys);
           changed = true;
           console.log(green("[cloopy] 鍵を削除しました"));
           break;
@@ -328,7 +334,7 @@ export async function manageKeys(): Promise<boolean> {
       console.error(red(`[cloopy] 鍵の更新に失敗しました: ${errMsg(e)}`));
       // store はメモリ上で変わっている可能性があるため読み直す
       try {
-        store = loadKeyStore();
+        store = loadKeyStore(instanceName);
       } catch {
         return changed;
       }
