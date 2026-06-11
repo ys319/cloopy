@@ -98,6 +98,8 @@ async function confirmAndAdd(
       addedAt,
     });
   }
+  // store (真実) を先に確定してから束を再生成する。束の書き込みが失敗しても
+  // 呼び出し元の catch が store を読み直し、次回の鍵操作や setup で束は再整合する
   saveKeyStore(store);
   rebuildAuthorizedKeys(store.keys);
   console.log(green(`[cloopy] ${fresh.length} 件の鍵を追加しました`));
@@ -221,6 +223,8 @@ export async function manageKeys(): Promise<boolean> {
           }
           const { keys, invalid } = parseKeysText(text);
           for (const line of invalid) {
+            // parseKeysText が拒否済みの行なので再パースは常に !ok
+            // (拒否理由のメッセージを得るためだけに呼ぶ)
             const r = parsePublicKey(line);
             console.log(
               yellow(
@@ -312,6 +316,7 @@ export async function manageKeys(): Promise<boolean> {
           });
           if (!sure) break;
           store.keys.splice(idx, 1);
+          // 追加時と同じく store 先行 (束の失敗は次回の再生成で整合する)
           saveKeyStore(store);
           rebuildAuthorizedKeys(store.keys);
           changed = true;

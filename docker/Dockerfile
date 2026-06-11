@@ -62,6 +62,8 @@ RUN echo "${S6_OVERLAY_NOARCH_SHA256}  /tmp/s6-overlay-noarch.tar.xz" | sha256su
     && rm /tmp/s6-overlay-noarch.tar.xz
 
 # Architecture-specific binary (auto-detect from TARGETARCH)
+# Only amd64/arm64 are supported: any other TARGETARCH falls through to
+# x86_64, whose tarball passes the sha256 check but cannot execute as PID 1.
 ARG TARGETARCH
 RUN S6_ARCH=$(case "${TARGETARCH}" in arm64) echo "aarch64";; *) echo "x86_64";; esac) \
     && S6_SHA256=$(case "${TARGETARCH}" in arm64) echo "${S6_OVERLAY_AARCH64_SHA256}";; *) echo "${S6_OVERLAY_X86_64_SHA256}";; esac) \

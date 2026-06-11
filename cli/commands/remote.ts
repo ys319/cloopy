@@ -224,6 +224,8 @@ async function addOrUpdate(store: RemoteStore): Promise<void> {
   } else {
     store.remotes.push(profile);
   }
+  // 永続化は store → known_hosts → config の順 (削除の逆順)。途中で失敗しても
+  // エントリが store に残り、一覧からの再登録・削除で回復できる側に倒すため
   saveRemoteStore(store);
   if (knownHostsLines) {
     await upsertKnownHosts(name, hostName, port, knownHostsLines);

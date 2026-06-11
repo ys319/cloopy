@@ -131,6 +131,11 @@ function toSshPath(p: string): string {
  * truncated file. Both ~/.ssh/config and the Included cloopy config are
  * parsed by EVERY ssh invocation — a torn write there breaks SSH for all
  * hosts, not just cloopy.
+ *
+ * The temp file lives in the same directory as the target, so the rename
+ * never crosses filesystems (which is what makes it atomic). If the target
+ * is a symlink it gets replaced by a regular file — known limitation,
+ * out of scope.
  */
 export function writeFileAtomic(path: string, content: string): void {
   const tmp = `${path}.tmp~`;
@@ -398,6 +403,9 @@ async function transformKnownHostsLine(
   if (!line || line.startsWith("#") || line.startsWith("@")) return rawLine;
   const fields = line.split(/\s+/);
   if (fields.length < 3) return rawLine;
+  // Marker match drops the line regardless of its host field — the marker is
+  // cloopy's ownership stamp, and only cloopy writes it (that assumption is
+  // what lets an entry's old pins be tracked across a host change).
   if (fields[3] === marker) return null;
   const hostField = fields[0];
   if (hostField.startsWith("|")) {
@@ -441,6 +449,8 @@ export async function filterKnownHostsContent(
  * its host changed) and by host token (user-added or ssh-auto-added lines
  * for the same destination, HashKnownHosts hashed ones included) — so a
  * host key change after reset never leaves a conflicting old pin behind.
+ * Hostnames appearing in the keyscan lines themselves are also added to the
+ * removal tokens, in case they differ from the `host` argument.
  */
 export async function upsertKnownHosts(
   name: string,
