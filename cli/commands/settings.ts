@@ -292,6 +292,14 @@ export async function editSettings(projectRoot: string): Promise<boolean> {
           message: "タイムゾーン",
           hint: "例: Asia/Tokyo, UTC",
           default: tz,
+          validate: (t) => {
+            try {
+              Intl.DateTimeFormat(undefined, { timeZone: t });
+              return true;
+            } catch {
+              return "無効なタイムゾーンです (例: Asia/Tokyo, UTC)";
+            }
+          },
         })).trim();
         if (v && v !== tz) {
           setEnvVar(envPath, "CLOOPY_TIMEZONE", v);

@@ -310,11 +310,15 @@ export async function manage(): Promise<void> {
         timer.stop();
         if (buildCode === 0) {
           const upCode = await compose(projectRoot, upArgs());
-          if (upCode === 0) keysPendingApply = false;
-          const env = readEnvFile(projectRoot);
-          const port = env.get("CLOOPY_SSH_PORT") ?? DEFAULT_SSH_PORT;
-          await refreshKnownHosts(port, instanceName);
-          await checkBootstrapStatus(projectRoot);
+          if (upCode === 0) {
+            keysPendingApply = false;
+            const env = readEnvFile(projectRoot);
+            const port = env.get("CLOOPY_SSH_PORT") ?? DEFAULT_SSH_PORT;
+            await refreshKnownHosts(port, instanceName);
+            await checkBootstrapStatus(projectRoot);
+          } else {
+            console.error(red("[cloopy] 起動に失敗しました"));
+          }
         } else {
           console.error(red("[cloopy] ビルドに失敗しました"));
         }
@@ -332,7 +336,8 @@ export async function manage(): Promise<void> {
           console.log("");
         }
         await setup();
-        // setup は down → up で必ず再作成するため、未反映の鍵変更も反映済み
+        // 上の down (manage 側) → setup 内の up で必ず再作成されるため、
+        // 未反映の鍵変更も反映済み
         keysPendingApply = false;
         break;
       }

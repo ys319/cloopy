@@ -217,7 +217,7 @@ export async function setup(): Promise<void> {
   // 手編集されたカスタム bind (特定 IP 等) は二択質問で潰さず、そのまま維持。
   const bindSet = savedEnv.has("CLOOPY_SSH_BIND");
   const currentBind = savedEnv.get("CLOOPY_SSH_BIND") ?? "";
-  let lanInput = true;
+  let effectiveBind = currentBind;
   if (currentBind !== "" && currentBind !== LOCAL_BIND) {
     console.log(
       dim(
@@ -225,13 +225,13 @@ export async function setup(): Promise<void> {
       ),
     );
   } else {
-    lanInput = await Confirm.prompt({
+    const lanInput = await Confirm.prompt({
       message: "SSH を LAN の他のマシンに公開しますか？",
       default: bindSet && currentBind === "",
     });
-    const newBind = lanInput ? "" : LOCAL_BIND;
-    if (!bindSet || newBind !== currentBind) {
-      setEnvVar(envPath, "CLOOPY_SSH_BIND", newBind);
+    effectiveBind = lanInput ? "" : LOCAL_BIND;
+    if (!bindSet || effectiveBind !== currentBind) {
+      setEnvVar(envPath, "CLOOPY_SSH_BIND", effectiveBind);
     }
   }
 
@@ -265,7 +265,7 @@ export async function setup(): Promise<void> {
   const useVolume = await Confirm.prompt({
     message: "ワークスペースに Docker ボリュームを使用しますか？",
     hint: "Windows では推奨",
-    default: false,
+    default: savedEnv.get("CLOOPY_WORKSPACE_VOLUME") === "true",
   });
   setEnvVar(
     envPath,
@@ -317,7 +317,8 @@ export async function setup(): Promise<void> {
       )
     }`,
   );
-  if (lanInput) {
+  // localhost 限定以外 (空 = 全 IF、カスタム IP も含む) は他マシンから届く
+  if (effectiveBind !== LOCAL_BIND) {
     console.log(
       dim(
         `  他マシンから: 接続元の cloopy メニュー「リモート接続」で\n` +
