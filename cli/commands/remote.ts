@@ -5,23 +5,22 @@ import { fingerprintSha256 } from "../lib/keys.ts";
 import { Confirm, Input, Select } from "../lib/prompt.ts";
 import {
   loadRemoteStore,
-  remoteKnownHostsPath,
   type RemoteProfile,
   type RemoteStore,
-  removeRemoteKnownHosts,
   saveRemoteStore,
   scanRemoteHostKeys,
   validateRemoteHost,
   validateRemoteName,
   validateRemotePort,
-  writeRemoteKnownHosts,
 } from "../lib/remote.ts";
 import {
   hasHostBlock,
   injectSshConfig,
   keyPath,
   readCloopyConfig,
+  removeKnownHostsEntry,
   removeSshConfigEntry,
+  upsertKnownHosts,
 } from "../lib/ssh.ts";
 
 const SEPARATOR = Select.separator("────────────────────────────");
@@ -85,8 +84,8 @@ async function testConnection(name: string): Promise<void> {
 
 /**
  * エントリの追加・更新。ホスト鍵は登録前に ssh-keyscan で取得し、指紋を
- * 確認してから known_hosts.d/<名前> に固定する（リモートは MITM があり得る
- * ため）。取得できない場合は TOFU (accept-new) での登録も選べる。
+ * 確認してから標準 ~/.ssh/known_hosts にマーカー付きで固定する（リモートは
+ * MITM があり得るため）。取得できない場合は TOFU (accept-new) での登録も選べる。
  */
 async function addOrUpdate(store: RemoteStore): Promise<void> {
   console.log(
@@ -223,16 +222,15 @@ async function addOrUpdate(store: RemoteStore): Promise<void> {
   }
   saveRemoteStore(store);
   if (knownHostsLines) {
-    writeRemoteKnownHosts(name, knownHostsLines);
+    await upsertKnownHosts(name, hostName, port, knownHostsLines);
   } else {
     // 接続先が変わったのに旧ホスト鍵が残ると毎回 mismatch で弾かれるため、
-    // TOFU を選んだ場合は既存の固定鍵を捨てて accept-new に任せる
-    removeRemoteKnownHosts(name);
+    // TOFU を選んだ場合はこのエントリの固定鍵を捨てて accept-new に任せる
+    await removeKnownHostsEntry(name);
   }
   injectSshConfig(port, name, {
     hostName,
     identityFile: identityFile || null,
-    knownHostsFile: remoteKnownHostsPath(name),
   });
   console.log(green(`[cloopy] エントリ "${name}" を保存しました`));
   console.log(
@@ -274,7 +272,7 @@ async function removeEntry(store: RemoteStore): Promise<void> {
   // addOrUpdate のローカルインスタンス誤判定で再登録も削除もできなくなる。
   // 逆順なら途中失敗してもエントリは store に残り、削除をやり直せる。
   removeSshConfigEntry(name);
-  removeRemoteKnownHosts(name);
+  await removeKnownHostsEntry(name);
   store.remotes = store.remotes.filter((r) => r.name !== name);
   saveRemoteStore(store);
   console.log(green(`[cloopy] "${name}" を削除しました`));
@@ -282,7 +280,7 @@ async function removeEntry(store: RemoteStore): Promise<void> {
 
 /**
  * リモート cloopy への接続プロファイル管理。docker 非依存 — SSH config と
- * known_hosts.d を書くだけなので、docker の無いクライアントマシンでも使える。
+ * known_hosts を書くだけなので、docker の無いクライアントマシンでも使える。
  */
 export async function manageRemotes(): Promise<void> {
   let store: RemoteStore;

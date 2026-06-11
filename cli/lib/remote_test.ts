@@ -1,17 +1,14 @@
 import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
 import {
   loadRemoteStore,
-  parseKeyscanOutput,
-  remoteKnownHostsPath,
   type RemoteProfile,
   remoteStorePath,
-  removeRemoteKnownHosts,
   saveRemoteStore,
   validateRemoteHost,
   validateRemoteName,
   validateRemotePort,
-  writeRemoteKnownHosts,
 } from "./remote.ts";
+import { parseKeyscanOutput } from "./ssh.ts";
 
 const isWindows = Deno.build.os === "windows";
 
@@ -115,7 +112,7 @@ Deno.test({
           JSON.stringify({ version: 1, remotes }),
         );
       };
-      // name のパストラバーサル (known_hosts.d 外への書き込み経路)
+      // name のパストラバーサル形式 (SSH config / known_hosts マーカー経路)
       write([{ name: "../../evil", hostName: "h", port: "22" }]);
       assertThrows(() => loadRemoteStore(), Error, "形式が不正");
       // name のオプション注入 (ssh 第一引数経路)
@@ -177,11 +174,11 @@ Deno.test("validateRemotePort: 範囲チェック", () => {
 // parseKeyscanOutput
 // --------------------------------------------------------------------------
 
-Deno.test("parseKeyscanOutput: ハッシュ化ホストの鍵行をパース", () => {
+Deno.test("parseKeyscanOutput: 鍵行をパースしコメント・不正行をスキップ", () => {
   const text = [
     "# 192.168.1.50:10022 SSH-2.0-OpenSSH_9.6", // コメントはスキップ
-    "|1|abcSALT=|defHASH= ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEx",
-    "|1|abcSALT=|defHASH= ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAB",
+    "[192.168.1.50]:10022 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEx",
+    "[192.168.1.50]:10022 ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAB",
     "",
     "garbage-line", // フィールド不足はスキップ
   ].join("\n");
@@ -190,37 +187,11 @@ Deno.test("parseKeyscanOutput: ハッシュ化ホストの鍵行をパース", (
   assertEquals(keys.length, 2);
   assertEquals(keys[0].type, "ssh-ed25519");
   assertEquals(keys[1].type, "ssh-rsa");
-  assertStringIncludes(lines[0], "|1|abcSALT=|defHASH= ssh-ed25519");
+  assertStringIncludes(lines[0], "[192.168.1.50]:10022 ssh-ed25519");
 });
 
 Deno.test("parseKeyscanOutput: 空入力は空結果", () => {
   const { lines, keys } = parseKeyscanOutput("");
   assertEquals(lines.length, 0);
   assertEquals(keys.length, 0);
-});
-
-// --------------------------------------------------------------------------
-// known_hosts.d
-// --------------------------------------------------------------------------
-
-Deno.test({
-  name: "knownHosts.d: 書き込み・削除・二重削除は無害・tmp 残骸なし",
-  ignore: isWindows,
-  fn() {
-    withTempHome(() => {
-      const lines = ["|1|a|b ssh-ed25519 AAAA", "|1|c|d ssh-rsa BBBB"];
-      writeRemoteKnownHosts("ucore", lines);
-      const written = Deno.readTextFileSync(remoteKnownHostsPath("ucore"));
-      assertEquals(written, lines.join("\n") + "\n");
-
-      const dir = remoteKnownHostsPath("ucore").replace(/\/ucore$/, "");
-      for (const entry of Deno.readDirSync(dir)) {
-        assertEquals(entry.name.endsWith(".tmp~"), false);
-      }
-
-      removeRemoteKnownHosts("ucore");
-      assertThrows(() => Deno.statSync(remoteKnownHostsPath("ucore")));
-      removeRemoteKnownHosts("ucore"); // 既に無い → no-op
-    });
-  },
 });

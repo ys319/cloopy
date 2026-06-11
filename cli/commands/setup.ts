@@ -79,6 +79,8 @@ export async function buildAndStart(): Promise<void> {
   const projectRoot = getProjectRoot();
   const env = readEnvFile(projectRoot);
   const port = env.get("CLOOPY_SSH_PORT") ?? DEFAULT_SSH_PORT;
+  const instanceName = env.get("CLOOPY_INSTANCE_NAME") ??
+    DEFAULT_INSTANCE_NAME;
 
   console.log("");
   console.log(bold("--- コンテナを起動中 ---"));
@@ -91,7 +93,7 @@ export async function buildAndStart(): Promise<void> {
     );
     Deno.exit(1);
   }
-  await refreshKnownHosts(port);
+  await refreshKnownHosts(port, instanceName);
   await checkBootstrapStatus(projectRoot);
   console.log("");
 }
@@ -298,7 +300,7 @@ export async function setup(): Promise<void> {
     Deno.exit(1);
   }
 
-  await refreshKnownHosts(portInput);
+  await refreshKnownHosts(portInput, instanceInput);
   await checkBootstrapStatus(projectRoot);
   console.log("");
 

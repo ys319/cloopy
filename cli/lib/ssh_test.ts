@@ -3,12 +3,16 @@ import { resolve } from "@std/path";
 import {
   buildHostBlock,
   ensureIncludeLine,
+  filterKnownHostsContent,
   hasHostBlock,
   injectSshConfig,
+  knownHostsToken,
   removeHostBlock,
+  removeKnownHostsEntry,
   removeSshConfigEntry,
   sshConfigPath,
   upsertHostBlock,
+  upsertKnownHosts,
 } from "./ssh.ts";
 
 const isWindows = Deno.build.os === "windows";
@@ -78,7 +82,7 @@ Deno.test("upsertHostBlock: ブロック内の $ シーケンスが化けない"
 // buildHostBlock
 // --------------------------------------------------------------------------
 
-Deno.test("buildHostBlock: デフォルトはローカル (localhost + 共有 known_hosts)", () => {
+Deno.test("buildHostBlock: デフォルトはローカル (localhost)", () => {
   const out = buildHostBlock("cloopy", "10022");
   assertStringIncludes(out, "# --- cloopy ---");
   assertStringIncludes(out, "Host cloopy");
@@ -87,21 +91,19 @@ Deno.test("buildHostBlock: デフォルトはローカル (localhost + 共有 kn
   assertStringIncludes(out, "User developer");
   assertStringIncludes(out, "IdentityFile ");
   assertStringIncludes(out, "StrictHostKeyChecking accept-new");
-  assertStringIncludes(out, "UserKnownHostsFile ");
+  // ホスト鍵は標準 ~/.ssh/known_hosts に固定する (Claude Desktop の SSH は
+  // UserKnownHostsFile を解釈せず標準ファイルしか見ないため、指定しない)
+  assertEquals(out.includes("UserKnownHostsFile"), false);
 });
 
 Deno.test("buildHostBlock: リモート用オプションが反映される", () => {
   const out = buildHostBlock("ucore", "10022", {
     hostName: "192.168.1.50",
     identityFile: "/home/u/.ssh/cloopy/id_ed25519",
-    knownHostsFile: "/home/u/.ssh/cloopy/known_hosts.d/ucore",
   });
   assertStringIncludes(out, "HostName 192.168.1.50");
   assertStringIncludes(out, "IdentityFile /home/u/.ssh/cloopy/id_ed25519");
-  assertStringIncludes(
-    out,
-    "UserKnownHostsFile /home/u/.ssh/cloopy/known_hosts.d/ucore",
-  );
+  assertEquals(out.includes("UserKnownHostsFile"), false);
 });
 
 Deno.test("buildHostBlock: identityFile null で IdentityFile 行を省略", () => {
@@ -295,6 +297,178 @@ Deno.test({
       assertStringIncludes(main, "Host myserver");
       assertStringIncludes(main, "Port 2222");
       assertEquals(main.startsWith("# --- cloopy ---\n"), true);
+    } finally {
+      if (origHome === undefined) Deno.env.delete("HOME");
+      else Deno.env.set("HOME", origHome);
+      Deno.removeSync(tmp, { recursive: true });
+    }
+  },
+});
+
+// --------------------------------------------------------------------------
+// known_hosts 管理（標準 ~/.ssh/known_hosts のマーカー付き upsert）
+// --------------------------------------------------------------------------
+
+const KH_KEY =
+  "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHQyApelvmNP36aS5YbPI4X3a5TvQgsjb5QuMn9jaxCi";
+// `ssh-keygen -H` が実際に生成したハッシュ行（HMAC-SHA1 照合の実フィクスチャ）
+const KH_HASHED_LOCALHOST = // [localhost]:10022
+  `|1|JufXJkq/rbS2JiVagr76gHJz82k=|c4c6ejVVkJiozB4Ny2kWkGANOp4= ${KH_KEY}`;
+const KH_HASHED_OTHER = // [192.168.1.50]:10022
+  `|1|+Q8PZ/obUgF+BaSKvXC1HYk7b3w=|Lj6MJtQesIhNGaQ0KR6E0gWH6JU= ${KH_KEY}`;
+
+Deno.test("knownHostsToken: 22 番は素のホスト・それ以外は [host]:port", () => {
+  assertEquals(knownHostsToken("example.com", "22"), "example.com");
+  assertEquals(knownHostsToken("localhost", "10022"), "[localhost]:10022");
+});
+
+Deno.test("filterKnownHostsContent: マーカー行と token 完全一致行のみ除去", async () => {
+  const content = [
+    "# user comment",
+    "",
+    `[localhost]:10022 ${KH_KEY} cloopy:dev`, // マーカー → 除去
+    `[LOCALHOST]:10022 ${KH_KEY}`, // 大文字 → 除去 (ssh のホスト名照合は大小無視)
+    `[localhost]:20022 ${KH_KEY}`, // 別ポート → 温存
+    `github.com ${KH_KEY}`, // 無関係 → 温存
+    `@cert-authority [localhost]:10022 ${KH_KEY}`, // @ 行 → 温存
+    `*.example.com ${KH_KEY}`, // ワイルドカード → 温存
+    "",
+  ].join("\n");
+  const out = await filterKnownHostsContent(content, "cloopy:dev", [
+    "[localhost]:10022",
+  ]);
+  assertEquals(out.includes("cloopy:dev"), false);
+  assertEquals(out.includes("[LOCALHOST]"), false);
+  assertStringIncludes(out, "# user comment");
+  assertStringIncludes(out, "[localhost]:20022");
+  assertStringIncludes(out, "github.com");
+  assertStringIncludes(out, "@cert-authority [localhost]:10022");
+  assertStringIncludes(out, "*.example.com");
+});
+
+Deno.test("filterKnownHostsContent: カンマ複数別名行は一致した別名だけ落とす", async () => {
+  // ユーザーが同一ホストの複数別名を 1 行にまとめて pin しているケース。
+  // 行ごと消すと他の別名の pin まで失われる (敵対レビュー指摘) ため、
+  // 一致した別名のみ落とし、全別名が一致したときだけ行ごと除去する。
+  const grouped = `[192.168.1.50]:10022,[homelab.local]:10022 ${KH_KEY}`;
+  const partial = await filterKnownHostsContent(grouped, "cloopy:dev", [
+    "[192.168.1.50]:10022",
+  ]);
+  assertEquals(partial, `[homelab.local]:10022 ${KH_KEY}`);
+
+  const full = await filterKnownHostsContent(grouped, "cloopy:dev", [
+    "[192.168.1.50]:10022",
+    "[homelab.local]:10022",
+  ]);
+  assertEquals(full, "");
+});
+
+Deno.test("filterKnownHostsContent: HashKnownHosts 行を HMAC 照合で除去", async () => {
+  const content = [KH_HASHED_LOCALHOST, KH_HASHED_OTHER, ""].join("\n");
+  const out = await filterKnownHostsContent(content, "cloopy:dev", [
+    knownHostsToken("localhost", "10022"),
+  ]);
+  assertEquals(out.includes("JufXJkq"), false); // [localhost]:10022 → 除去
+  assertStringIncludes(out, "+Q8PZ"); // 別ホスト → 温存
+});
+
+Deno.test("filterKnownHostsContent: 他エントリのマーカー・壊れた行は触らない", async () => {
+  const content = [
+    `[10.0.0.5]:10022 ${KH_KEY} cloopy:other`, // 別エントリのマーカー → 温存
+    "|1|broken", // フィールド不足 → 温存
+    `|1|not-base64!|??? ${KH_KEY}`, // 壊れたハッシュ → 温存
+    "",
+  ].join("\n");
+  const out = await filterKnownHostsContent(content, "cloopy:dev", [
+    "[localhost]:10022",
+  ]);
+  assertStringIncludes(out, "cloopy:other");
+  assertStringIncludes(out, "|1|broken");
+  assertStringIncludes(out, "|1|not-base64!");
+});
+
+Deno.test({
+  name: "upsertKnownHosts: 新規作成 → 鍵差し替え → マーカー削除の一連動作",
+  ignore: isWindows,
+  async fn() {
+    const tmp = Deno.makeTempDirSync();
+    const origHome = Deno.env.get("HOME");
+    Deno.env.set("HOME", tmp);
+    try {
+      const path = resolve(tmp, ".ssh", "known_hosts");
+
+      // ファイル未存在 → 作成され、マーカー付きで追記される
+      await upsertKnownHosts("dev", "localhost", "10022", [
+        `[localhost]:10022 ${KH_KEY}`,
+      ]);
+      let content = Deno.readTextFileSync(path);
+      assertEquals(content, `[localhost]:10022 ${KH_KEY} cloopy:dev\n`);
+
+      // ユーザー行（末尾改行なし）の後ろに追記しても行が壊れない
+      const KEY2 = "ssh-ed25519 AAAAtestSecondKey";
+      Deno.writeTextFileSync(path, `github.com ${KH_KEY}`);
+      await upsertKnownHosts("dev", "localhost", "10022", [
+        `[localhost]:10022 ${KEY2}`,
+      ]);
+      content = Deno.readTextFileSync(path);
+      assertEquals(
+        content,
+        `github.com ${KH_KEY}\n[localhost]:10022 ${KEY2} cloopy:dev\n`,
+      );
+
+      // 鍵が変わった体で再 upsert → 旧 pin は置換され重複しない
+      await upsertKnownHosts("dev", "localhost", "10022", [
+        `[localhost]:10022 ${KH_KEY}`,
+      ]);
+      content = Deno.readTextFileSync(path);
+      assertEquals(content.includes(KEY2), false);
+      assertEquals(content.match(/cloopy:dev/g)?.length, 1);
+      assertStringIncludes(content, `github.com ${KH_KEY}`);
+
+      // removeKnownHostsEntry はマーカー行のみ除去（ユーザー行は残す）
+      await removeKnownHostsEntry("dev");
+      content = Deno.readTextFileSync(path);
+      assertEquals(content.includes("cloopy:dev"), false);
+      assertStringIncludes(content, "github.com");
+
+      // tmp 残骸なし
+      for (const entry of Deno.readDirSync(resolve(tmp, ".ssh"))) {
+        assertEquals(entry.name.endsWith(".tmp~"), false);
+      }
+
+      // ファイルが無い状態での remove は no-op
+      Deno.removeSync(path);
+      await removeKnownHostsEntry("dev");
+    } finally {
+      if (origHome === undefined) Deno.env.delete("HOME");
+      else Deno.env.set("HOME", origHome);
+      Deno.removeSync(tmp, { recursive: true });
+    }
+  },
+});
+
+Deno.test({
+  name: "upsertKnownHosts: ハッシュ化された旧エントリも token 一致で置換",
+  ignore: isWindows,
+  async fn() {
+    const tmp = Deno.makeTempDirSync();
+    const origHome = Deno.env.get("HOME");
+    Deno.env.set("HOME", tmp);
+    try {
+      const path = resolve(tmp, ".ssh", "known_hosts");
+      Deno.mkdirSync(resolve(tmp, ".ssh"), { recursive: true });
+      // Ubuntu (HashKnownHosts yes) で手動 ssh した残骸を模倣
+      Deno.writeTextFileSync(
+        path,
+        [KH_HASHED_LOCALHOST, KH_HASHED_OTHER, ""].join("\n"),
+      );
+      await upsertKnownHosts("dev", "localhost", "10022", [
+        `[localhost]:10022 ${KH_KEY}`,
+      ]);
+      const content = Deno.readTextFileSync(path);
+      assertEquals(content.includes("JufXJkq"), false); // 旧ハッシュ pin 除去
+      assertStringIncludes(content, "+Q8PZ"); // 別ホストは温存
+      assertStringIncludes(content, `[localhost]:10022 ${KH_KEY} cloopy:dev`);
     } finally {
       if (origHome === undefined) Deno.env.delete("HOME");
       else Deno.env.set("HOME", origHome);

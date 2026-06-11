@@ -127,7 +127,7 @@ CLOOPY_DNS_SECONDARY=1.0.0.2
 2. サーバのIPとポートを入力 → ホスト鍵の指紋を確認 → 登録
 3. 以後 `ssh <エントリ名>` やVS Code / Claude DesktopのRemote SSHで接続可能
 
-クライアント側にDockerは不要です（Dockerが見つからない場合は起動時にリモート接続専用モードを案内します）。エントリは`~/.ssh/cloopy/remotes.json`で管理され、ホスト鍵は`~/.ssh/cloopy/known_hosts.d/`にエントリごとに固定されます。
+クライアント側にDockerは不要です（Dockerが見つからない場合は起動時にリモート接続専用モードを案内します）。エントリは`~/.ssh/cloopy/remotes.json`で管理され、ホスト鍵は標準の`~/.ssh/known_hosts`に`cloopy:<エントリ名>`マーカー付きで固定されます（Claude DesktopのSSH接続は標準known_hostsしか参照しないため。VS CodeやClaude Desktopからもそのまま繋がります）。
 
 > セキュリティ上の注意: セットアップでのSSH公開範囲のデフォルトは「ローカルのみ（127.0.0.1）」です。LAN公開はSSH（公開鍵認証のみ・rootログイン不可）で保護されますが、信頼できないネットワークでは有効にしないでください。インターネットへの直接公開は想定外です（必要ならVPN越しに）。
 

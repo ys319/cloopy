@@ -28,19 +28,18 @@ export function sshConfigPath(): string {
   return resolve(sshDir(), "config");
 }
 
-/** Get the cloopy known_hosts path (~/.ssh/cloopy/known_hosts) */
-export function knownHostsPath(): string {
-  return resolve(sshDir(), "known_hosts");
-}
-
 /**
- * Get the per-remote known_hosts directory (~/.ssh/cloopy/known_hosts.d).
- * Remote entries each get their own file here: the shared known_hosts is
- * wholly overwritten by refreshKnownHosts on every local rebuild, which
- * would silently drop remote host keys if they shared the file.
+ * Get the standard known_hosts path (~/.ssh/known_hosts).
+ * Host keys are pinned HERE, not in a cloopy-private file: Claude Desktop's
+ * SSH client (a bundled ssh2 implementation) only consults the default
+ * known_hosts and ignores UserKnownHostsFile / StrictHostKeyChecking from
+ * ~/.ssh/config, with no interactive accept UI — a key it cannot find there
+ * fails the connection outright. Lines cloopy writes carry a trailing
+ * comment marker (knownHostsMarker) so they can be updated/removed without
+ * touching the user's own entries.
  */
-export function knownHostsDir(): string {
-  return resolve(sshDir(), "known_hosts.d");
+export function defaultKnownHostsPath(): string {
+  return resolve(homeDir(), ".ssh", "known_hosts");
 }
 
 /** Get the main SSH config path (~/.ssh/config) */
@@ -221,8 +220,6 @@ export interface HostBlockOptions {
    * null = omit the line entirely (ssh falls back to agent/default keys).
    */
   identityFile?: string | null;
-  /** UserKnownHostsFile path (default: the shared cloopy known_hosts) */
-  knownHostsFile?: string;
 }
 
 /**
@@ -247,12 +244,9 @@ export function buildHostBlock(
   if (identityFile !== null) {
     lines.push(`    IdentityFile ${toSshPath(identityFile)}`);
   }
-  lines.push(
-    `    StrictHostKeyChecking accept-new`,
-    `    UserKnownHostsFile ${
-      toSshPath(opts.knownHostsFile ?? knownHostsPath())
-    }`,
-  );
+  // UserKnownHostsFile は指定しない: ホスト鍵は標準 ~/.ssh/known_hosts に
+  // 固定する (理由は defaultKnownHostsPath のコメント参照)。
+  lines.push(`    StrictHostKeyChecking accept-new`);
   return lines.join("\n");
 }
 
@@ -260,7 +254,7 @@ export function buildHostBlock(
  * Write the cloopy SSH config file and ensure Include in main ~/.ssh/config.
  * Both writes are atomic (temp file + rename).
  * Defaults target the local container (HostName localhost); remote profiles
- * pass hostName/identityFile/knownHostsFile via opts.
+ * pass hostName/identityFile via opts.
  * @param port SSH port number as string
  * @param instanceName Name used as SSH Host (default: "cloopy")
  */
@@ -339,13 +333,203 @@ export function removeSshConfigEntry(name: string): void {
   }
 }
 
+/** Trailing-comment marker identifying cloopy-managed known_hosts lines. */
+export function knownHostsMarker(name: string): string {
+  return `cloopy:${name}`;
+}
+
 /**
- * Fetch the current host key via ssh-keyscan and overwrite known_hosts.
- * Call this after container start/rebuild so tools never see a key-changed prompt.
- * Retries up to 3 times (2 s interval) to handle sshd not yet ready.
- * @param port SSH port number as string
+ * known_hosts host-field token for a host:port pair, in the form ssh and
+ * ssh-keyscan use (bare host on port 22, "[host]:port" otherwise).
  */
-export async function refreshKnownHosts(port: string): Promise<void> {
+export function knownHostsToken(host: string, port: string): string {
+  return port === "22" ? host : `[${host}]:${port}`;
+}
+
+/**
+ * Match a HashKnownHosts field (|1|salt|hash, hash = HMAC-SHA1(salt, host))
+ * against a host token. ssh lowercases hostnames before hashing/lookup, so
+ * callers pass the token already lowercased.
+ */
+async function hashedHostMatches(
+  field: string,
+  lowerToken: string,
+): Promise<boolean> {
+  const parts = field.split("|");
+  if (parts.length !== 4 || parts[0] !== "" || parts[1] !== "1") return false;
+  try {
+    const salt = Uint8Array.from(atob(parts[2]), (c) => c.charCodeAt(0));
+    const key = await crypto.subtle.importKey(
+      "raw",
+      salt,
+      { name: "HMAC", hash: "SHA-1" },
+      false,
+      ["sign"],
+    );
+    const mac = new Uint8Array(
+      await crypto.subtle.sign(
+        "HMAC",
+        key,
+        new TextEncoder().encode(lowerToken),
+      ),
+    );
+    return btoa(String.fromCharCode(...mac)) === parts[3];
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Transform a known_hosts line for removal of the given marker/tokens.
+ * Returns null to drop the line (marker match, hashed-host match, or every
+ * plain alias matched), the original line when untouched, or a rebuilt line
+ * when only SOME comma-grouped aliases matched — the other aliases' pins
+ * are not ours to delete (dropping the whole line would silently lose them
+ * and reopen TOFU for those names). Comments, blank lines,
+ * @cert-authority/@revoked lines and wildcard patterns are never touched —
+ * only exact entries for our own destination are.
+ */
+async function transformKnownHostsLine(
+  rawLine: string,
+  marker: string,
+  lowerTokens: string[],
+): Promise<string | null> {
+  const line = rawLine.trim();
+  if (!line || line.startsWith("#") || line.startsWith("@")) return rawLine;
+  const fields = line.split(/\s+/);
+  if (fields.length < 3) return rawLine;
+  if (fields[3] === marker) return null;
+  const hostField = fields[0];
+  if (hostField.startsWith("|")) {
+    for (const t of lowerTokens) {
+      if (await hashedHostMatches(hostField, t)) return null;
+    }
+    return rawLine;
+  }
+  const names = hostField.split(",");
+  const remaining = names.filter((h) => !lowerTokens.includes(h.toLowerCase()));
+  if (remaining.length === names.length) return rawLine;
+  if (remaining.length === 0) return null;
+  return [remaining.join(","), ...fields.slice(1)].join(" ");
+}
+
+/**
+ * Drop or rewrite matching lines (see transformKnownHostsLine) in
+ * known_hosts content; every other line is preserved as-is. Pure —
+ * exported for tests.
+ */
+export async function filterKnownHostsContent(
+  content: string,
+  marker: string,
+  tokens: string[],
+): Promise<string> {
+  const lower = tokens.map((t) => t.toLowerCase());
+  const kept: string[] = [];
+  for (const line of content.split("\n")) {
+    const transformed = await transformKnownHostsLine(line, marker, lower);
+    if (transformed !== null) {
+      kept.push(transformed);
+    }
+  }
+  return kept.join("\n");
+}
+
+/**
+ * Replace the entries for host:port in ~/.ssh/known_hosts with the given
+ * keyscan lines, each tagged with the entry's marker comment. Stale lines
+ * are removed first — by marker (the entry's own previous pins, even after
+ * its host changed) and by host token (user-added or ssh-auto-added lines
+ * for the same destination, HashKnownHosts hashed ones included) — so a
+ * host key change after reset never leaves a conflicting old pin behind.
+ */
+export async function upsertKnownHosts(
+  name: string,
+  host: string,
+  port: string,
+  lines: string[],
+): Promise<void> {
+  const tokens = new Set([knownHostsToken(host, port)]);
+  for (const l of lines) {
+    const field = l.trim().split(/\s+/)[0];
+    if (field && !field.startsWith("|") && !field.startsWith("@")) {
+      for (const h of field.split(",")) tokens.add(h);
+    }
+  }
+  const marker = knownHostsMarker(name);
+  const path = defaultKnownHostsPath();
+  let content = "";
+  try {
+    content = Deno.readTextFileSync(path);
+  } catch (e) {
+    if (!(e instanceof Deno.errors.NotFound)) throw e;
+  }
+  let updated = await filterKnownHostsContent(content, marker, [...tokens]);
+  if (updated !== "" && !updated.endsWith("\n")) updated += "\n";
+  for (const l of lines) updated += `${l} ${marker}\n`;
+  Deno.mkdirSync(resolve(homeDir(), ".ssh"), { recursive: true });
+  writeFileAtomic(path, updated);
+}
+
+/**
+ * Remove an entry's cloopy-marked lines from ~/.ssh/known_hosts.
+ * Marker-only on purpose: lines the user added by hand for the same host
+ * (or ssh auto-added before pinning) are not ours to delete.
+ */
+export async function removeKnownHostsEntry(name: string): Promise<void> {
+  const path = defaultKnownHostsPath();
+  let content: string;
+  try {
+    content = Deno.readTextFileSync(path);
+  } catch (e) {
+    if (e instanceof Deno.errors.NotFound) return;
+    throw e;
+  }
+  const updated = await filterKnownHostsContent(
+    content,
+    knownHostsMarker(name),
+    [],
+  );
+  if (updated !== content) writeFileAtomic(path, updated);
+}
+
+export interface ScannedHostKey {
+  type: string;
+  base64: string;
+}
+
+/**
+ * Parse ssh-keyscan stdout into host key entries. Lines are
+ * `<host> <type> <base64>`; comments and malformed lines are skipped.
+ * Pure — exported for tests.
+ */
+export function parseKeyscanOutput(
+  text: string,
+): { lines: string[]; keys: ScannedHostKey[] } {
+  const lines: string[] = [];
+  const keys: ScannedHostKey[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const fields = line.split(/\s+/);
+    if (fields.length < 3) continue;
+    lines.push(line);
+    keys.push({ type: fields[1], base64: fields[2] });
+  }
+  return { lines, keys };
+}
+
+/**
+ * Fetch the local container's current host keys via ssh-keyscan and upsert
+ * them into ~/.ssh/known_hosts (replacing previous [localhost]:port pins).
+ * Call this after container start/rebuild so tools never see a key-changed
+ * prompt. Retries up to 3 times (2 s interval) to handle sshd not yet ready.
+ * @param port SSH port number as string
+ * @param instanceName Instance name used as the known_hosts marker
+ */
+export async function refreshKnownHosts(
+  port: string,
+  instanceName: string,
+): Promise<void> {
   console.log("[cloopy] known_hosts を更新中...");
 
   const maxRetries = 3;
@@ -353,7 +537,7 @@ export async function refreshKnownHosts(port: string): Promise<void> {
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     const cmd = new Deno.Command("ssh-keyscan", {
-      args: ["-p", port, "-H", "localhost"],
+      args: ["-p", port, "localhost"],
       stdout: "piped",
       stderr: "null",
     });
@@ -372,8 +556,8 @@ export async function refreshKnownHosts(port: string): Promise<void> {
       return;
     }
 
-    const keys = new TextDecoder().decode(stdout).trim();
-    if (!keys) {
+    const { lines } = parseKeyscanOutput(new TextDecoder().decode(stdout));
+    if (lines.length === 0) {
       if (attempt < maxRetries) {
         console.log(
           `[cloopy] ssh-keyscan: キー未取得 (${attempt}/${maxRetries}), ${
@@ -387,8 +571,7 @@ export async function refreshKnownHosts(port: string): Promise<void> {
       return;
     }
 
-    Deno.mkdirSync(sshDir(), { recursive: true });
-    Deno.writeTextFileSync(knownHostsPath(), keys + "\n");
+    await upsertKnownHosts(instanceName, "localhost", port, lines);
     console.log("[cloopy] known_hosts を更新しました");
     return;
   }

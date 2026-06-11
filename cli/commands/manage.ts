@@ -316,7 +316,7 @@ export async function manage(): Promise<void> {
           if (upCode === 0) keysPendingApply = false;
           const env = readEnvFile(projectRoot);
           const port = env.get("CLOOPY_SSH_PORT") ?? DEFAULT_SSH_PORT;
-          await refreshKnownHosts(port);
+          await refreshKnownHosts(port, instanceName);
           await checkBootstrapStatus(projectRoot);
         } else {
           console.error(red("[cloopy] ビルドに失敗しました"));
@@ -359,7 +359,7 @@ export async function manage(): Promise<void> {
               // host key. Done only after a successful recreate, so declining
               // leaves the alias pointing at the still-running old container.
               injectSshConfig(port2, instanceName);
-              await refreshKnownHosts(port2);
+              await refreshKnownHosts(port2, instanceName);
               await checkBootstrapStatus(projectRoot);
               console.log(green("[cloopy] 設定を反映しました"));
             } else {
@@ -613,7 +613,10 @@ export async function manage(): Promise<void> {
             const restoreEnv = readEnvFile(projectRoot);
             const restorePort = restoreEnv.get("CLOOPY_SSH_PORT") ??
               DEFAULT_SSH_PORT;
-            await refreshKnownHosts(restorePort);
+            // リストア直後はリストアした .env のインスタンス名でピン留め
+            const restoreInstance = restoreEnv.get("CLOOPY_INSTANCE_NAME") ??
+              DEFAULT_INSTANCE_NAME;
+            await refreshKnownHosts(restorePort, restoreInstance);
             await checkBootstrapStatus(projectRoot);
             console.log(green("[cloopy] リストア完了"));
           } else {

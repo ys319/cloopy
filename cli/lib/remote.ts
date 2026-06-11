@@ -1,13 +1,18 @@
 import { resolve } from "@std/path";
-import { knownHostsDir, sshDir, writeFileAtomic } from "./ssh.ts";
+import {
+  parseKeyscanOutput,
+  type ScannedHostKey,
+  sshDir,
+  writeFileAtomic,
+} from "./ssh.ts";
 
 /**
  * A remote cloopy connection profile. The store is the source of truth;
- * the SSH config Host block and the per-remote known_hosts file are
+ * the SSH config Host block and the known_hosts marker lines are
  * regenerated from it (same design as keys.json / authorized_keys).
  */
 export interface RemoteProfile {
-  /** SSH Host alias (also the known_hosts.d file name) */
+  /** SSH Host alias (also the known_hosts marker name) */
   name: string;
   /** Remote host (IP or DNS name) */
   hostName: string;
@@ -26,11 +31,6 @@ export interface RemoteStore {
 /** Path to the remote profile store (~/.ssh/cloopy/remotes.json) */
 export function remoteStorePath(): string {
   return resolve(sshDir(), "remotes.json");
-}
-
-/** Per-remote known_hosts file (~/.ssh/cloopy/known_hosts.d/<name>) */
-export function remoteKnownHostsPath(name: string): string {
-  return resolve(knownHostsDir(), name);
 }
 
 /**
@@ -56,7 +56,7 @@ export function loadRemoteStore(): RemoteStore {
     );
   }
   const store = data as RemoteStore;
-  // name は known_hosts.d のファイル名・SSH config のブロック名・ssh の
+  // name は known_hosts のマーカー・SSH config のブロック名・ssh の
   // 引数へ、hostName/port は config 行へ流れる。手編集された store 経由の
   // パストラバーサル ("../") やオプション注入 ("-o...") を入口で潰すため、
   // 入力時と同じバリデータを load 時にも再適用する。
@@ -94,9 +94,9 @@ export function saveRemoteStore(store: RemoteStore): void {
 }
 
 /**
- * Validate a remote entry name. Doubles as the known_hosts.d file name, so
- * the charset is restricted to path-safe characters (same rule as instance
- * names — they share the SSH Host namespace).
+ * Validate a remote entry name. Doubles as the known_hosts marker token and
+ * the SSH Host name, so the charset is restricted to a single safe word
+ * (same rule as instance names — they share the SSH Host namespace).
  */
 export function validateRemoteName(name: string): boolean | string {
   const t = name.trim();
@@ -130,41 +130,18 @@ export function validateRemotePort(s: string): boolean | string {
   return true;
 }
 
-export interface ScannedHostKey {
-  type: string;
-  base64: string;
-}
-
-/**
- * Parse ssh-keyscan stdout into host key entries. Lines are
- * `<host> <type> <base64>` (host is hashed under -H); comments and
- * malformed lines are skipped. Pure — exported for tests.
- */
-export function parseKeyscanOutput(
-  text: string,
-): { lines: string[]; keys: ScannedHostKey[] } {
-  const lines: string[] = [];
-  const keys: ScannedHostKey[] = [];
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
-    const fields = line.split(/\s+/);
-    if (fields.length < 3) continue;
-    lines.push(line);
-    keys.push({ type: fields[1], base64: fields[2] });
-  }
-  return { lines, keys };
-}
-
 export type ScanResult =
   | { ok: true; lines: string[]; keys: ScannedHostKey[] }
   | { ok: false; error: string };
 
 /**
- * Fetch a remote host's SSH host keys via ssh-keyscan (-H hashed, same
- * format as the local known_hosts). One attempt with a short timeout —
- * unlike the local refreshKnownHosts there is no "container still booting"
- * race to retry around.
+ * Fetch a remote host's SSH host keys via ssh-keyscan. NOT hashed (-H):
+ * the lines go into the standard ~/.ssh/known_hosts, and Claude Desktop's
+ * own known_hosts parser has no documented support for hashed entries —
+ * plain entries are the safe common denominator (the hostname is already
+ * stored in plain text in remotes.json and the SSH config anyway).
+ * One attempt with a short timeout — unlike the local refreshKnownHosts
+ * there is no "container still booting" race to retry around.
  */
 export async function scanRemoteHostKeys(
   host: string,
@@ -172,7 +149,7 @@ export async function scanRemoteHostKeys(
 ): Promise<ScanResult> {
   try {
     const cmd = new Deno.Command("ssh-keyscan", {
-      args: ["-p", port, "-T", "5", "-H", host],
+      args: ["-p", port, "-T", "5", host],
       stdout: "piped",
       stderr: "null",
     });
@@ -192,20 +169,5 @@ export async function scanRemoteHostKeys(
       return { ok: false, error: "ssh-keyscan コマンドが見つかりません" };
     }
     return { ok: false, error: String(e) };
-  }
-}
-
-/** Write a remote entry's known_hosts file (atomic, 0600). */
-export function writeRemoteKnownHosts(name: string, lines: string[]): void {
-  Deno.mkdirSync(knownHostsDir(), { recursive: true });
-  writeFileAtomic(remoteKnownHostsPath(name), lines.join("\n") + "\n");
-}
-
-/** Remove a remote entry's known_hosts file (no-op when missing). */
-export function removeRemoteKnownHosts(name: string): void {
-  try {
-    Deno.removeSync(remoteKnownHostsPath(name));
-  } catch (e) {
-    if (!(e instanceof Deno.errors.NotFound)) throw e;
   }
 }
