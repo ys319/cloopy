@@ -8,7 +8,7 @@ import {
   validateRemoteName,
   validateRemotePort,
 } from "./remote.ts";
-import { parseKeyscanOutput } from "./ssh.ts";
+import { parseKeyscanOutput, sshDir } from "./ssh.ts";
 
 const isWindows = Deno.build.os === "windows";
 
@@ -59,9 +59,7 @@ Deno.test({
   ignore: isWindows,
   fn() {
     withTempHome(() => {
-      Deno.mkdirSync(remoteStorePath().replace(/\/remotes\.json$/, ""), {
-        recursive: true,
-      });
+      Deno.mkdirSync(sshDir(), { recursive: true });
       Deno.writeTextFileSync(remoteStorePath(), "{ broken");
       assertThrows(() => loadRemoteStore(), Error, "JSON として読めません");
     });
@@ -73,9 +71,7 @@ Deno.test({
   ignore: isWindows,
   fn() {
     withTempHome(() => {
-      Deno.mkdirSync(remoteStorePath().replace(/\/remotes\.json$/, ""), {
-        recursive: true,
-      });
+      Deno.mkdirSync(sshDir(), { recursive: true });
       // hostName 欠落 → 形式不正
       Deno.writeTextFileSync(
         remoteStorePath(),

@@ -11,14 +11,19 @@ import {
   parseKeysText,
   parsePublicKey,
   rebuildAuthorizedKeys,
+  RSA_MIN_BITS,
   saveKeyStore,
   type StoredKey,
   validateGithubUsername,
+  validatePublicKeyInput,
 } from "./keys.ts";
 
 const isWindows = Deno.build.os === "windows";
 
-// 実鍵フィクスチャ（ssh-keygen で生成、指紋は ssh-keygen -lf の出力）
+// 実鍵フィクスチャ。すべて ssh-keygen で生成した本物の公開鍵:
+//   ED25519_A/B = ssh-keygen -t ed25519、RSA2048/RSA1024 = ssh-keygen -t rsa -b <bits>、
+//   ECDSA256 = ssh-keygen -t ecdsa -b 256。
+// *_FP は対応する鍵の `ssh-keygen -lf` 出力 (SHA256 指紋) の実値。
 const ED25519_A =
   "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN1jvHqJGAUHG3RopolrRulV2YzqdsYg2xkNbRsWfkw+ alice@example";
 const ED25519_A_FP = "SHA256:JfEE3AlUF+JgiShAmqSULf/+Yv5YAAQQFI71jBe2xaE";
@@ -78,6 +83,21 @@ Deno.test("parsePublicKey: rsa の鍵長を検出 (2048 / 1024)", () => {
   } else {
     throw new Error("RSA keys should parse");
   }
+});
+
+Deno.test("RSA_MIN_BITS: 1024 bit 鍵は警告閾値を下回る", () => {
+  const r = parsePublicKey(RSA1024);
+  if (!r.ok) throw new Error("RSA1024 should parse");
+  assertEquals(
+    r.key.rsaBits !== undefined && r.key.rsaBits < RSA_MIN_BITS,
+    true,
+  );
+});
+
+Deno.test("validatePublicKeyInput: 受理は true、拒否は理由文字列", () => {
+  assertEquals(validatePublicKeyInput(ED25519_A), true);
+  assertEquals(typeof validatePublicKeyInput(""), "string");
+  assertEquals(typeof validatePublicKeyInput("not a key"), "string");
 });
 
 Deno.test("parsePublicKey: ecdsa-sha2-nistp256 を受理", () => {
@@ -209,6 +229,12 @@ Deno.test("fetchGithubKeys: 200 → ok / 404 → not_found / 空 → empty / 500
   assertEquals(requestedUrl, "");
 });
 
+Deno.test("fetchGithubKeys: fetch の例外 (DNS 失敗等) は error に落ちる", async () => {
+  const netErr: typeof fetch = () => Promise.reject(new Error("ENOTFOUND"));
+  const res = await fetchGithubKeys("octocat", netErr);
+  assertEquals(res.status, "error");
+});
+
 // --------------------------------------------------------------------------
 // store / rebuild（統合: HOME を一時ディレクトリへ）
 // --------------------------------------------------------------------------
@@ -282,6 +308,10 @@ Deno.test({
       for (const entry of Deno.readDirSync(dir)) {
         assertEquals(entry.name.endsWith(".tmp~"), false, entry.name);
       }
+
+      // 束ファイルは 0600 (writeFileAtomic の回帰防止)
+      const st = Deno.statSync(authorizedKeysPath());
+      assertEquals(st.mode! & 0o777, 0o600);
     });
   },
 });
