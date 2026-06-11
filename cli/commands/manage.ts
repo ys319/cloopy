@@ -141,7 +141,7 @@ export async function manage(): Promise<void> {
         SEPARATOR,
         { name: "設定", value: "menu-settings" },
         { name: "メンテナンス", value: "menu-maintenance" },
-        { name: "リモート接続 (他マシンの cloopy へ)", value: "remotes" },
+        { name: "リモート接続", value: "remotes" },
         SEPARATOR,
         { name: "終了", value: "quit" },
       ],
@@ -154,12 +154,9 @@ export async function manage(): Promise<void> {
       choice = await Select.prompt({
         message: "操作を選択",
         options: [
-          {
-            name: "設定変更 (DNS・Firewall・SSH ポート等)",
-            value: "settings",
-          },
+          { name: "設定変更", value: "settings" },
           { name: "SSH 鍵管理", value: "keys" },
-          { name: "再設定 (セットアップをやり直す)", value: "setup" },
+          { name: "再設定", value: "setup" },
           SEPARATOR,
           { name: "戻る", value: "back" },
         ],
@@ -170,8 +167,8 @@ export async function manage(): Promise<void> {
         message: "メンテナンス",
         options: [
           { name: "ヘルスチェック", value: "doctor" },
-          { name: "リビルド (イメージ再ビルド + 再起動)", value: "rebuild" },
-          { name: "管理シェル (root)", value: "shell" },
+          { name: "リビルド", value: "rebuild" },
+          { name: "ルートシェル", value: "shell" },
           { name: "バックアップ", value: "backup" },
           { name: "リストア", value: "restore" },
           { name: red("リセット (永続データ初期化)"), value: "reset" },

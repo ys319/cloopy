@@ -177,7 +177,8 @@ export async function setup(): Promise<void> {
     // store 破損時は衝突チェックを諦める (破損の警告はリモート接続メニュー側)
   }
   const instanceInput = await Input.prompt({
-    message: "インスタンス名 (SSH ホスト名・ボリュームプレフィックス)",
+    message: "インスタンス名",
+    hint: "SSH のホスト名とボリューム名の接頭辞になります",
     default: currentInstance,
     validate: (v) => {
       if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(v)) {
@@ -225,8 +226,7 @@ export async function setup(): Promise<void> {
     );
   } else {
     lanInput = await Confirm.prompt({
-      message:
-        "SSH を LAN の他のマシンに公開しますか？ (いいえ = このマシンからのみ接続可)",
+      message: "SSH を LAN の他のマシンに公開しますか？",
       default: bindSet && currentBind === "",
     });
     const newBind = lanInput ? "" : LOCAL_BIND;
@@ -263,8 +263,8 @@ export async function setup(): Promise<void> {
   }
 
   const useVolume = await Confirm.prompt({
-    message:
-      "ワークスペースに Docker ボリュームを使用しますか？ (Windows 推奨)",
+    message: "ワークスペースに Docker ボリュームを使用しますか？",
+    hint: "Windows では推奨",
     default: false,
   });
   setEnvVar(

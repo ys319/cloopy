@@ -16,7 +16,7 @@ switch (command) {
       // 起動忘れで既存ユーザーをリモート専用モードへ逸らさないため。
       const remoteOnly = await Confirm.prompt({
         message:
-          "Docker が見つかりません (未インストール)。リモート接続設定のみ利用しますか？ (docker 不要)",
+          "Docker が見つかりません。リモート接続の設定のみ利用しますか？",
         default: true,
       });
       if (remoteOnly) {

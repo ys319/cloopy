@@ -18,17 +18,17 @@ interface DnsPreset {
 /** Filtering DNS resolver presets (malware/phishing scope, no content filter). */
 const DNS_PRESETS: Record<string, DnsPreset> = {
   cloudflare: {
-    name: "Cloudflare for Families (1.1.1.2)",
+    name: "Cloudflare for Families",
     v4: ["1.1.1.2", "1.0.0.2"],
     v6: ["2606:4700:4700::1112", "2606:4700:4700::1002"],
   },
   quad9: {
-    name: "Quad9 (9.9.9.9)",
+    name: "Quad9",
     v4: ["9.9.9.9", "149.112.112.112"],
     v6: ["2620:fe::fe", "2620:fe::9"],
   },
   opendns: {
-    name: "Cisco OpenDNS (208.67.222.222)",
+    name: "Cisco OpenDNS",
     v4: ["208.67.222.222", "208.67.220.220"],
     v6: ["2620:119:35::35", "2620:119:53::53"],
   },
@@ -125,21 +125,31 @@ export async function editSettings(projectRoot: string): Promise<boolean> {
           default: currentPreset,
           options: [
             {
-              name: `${DNS_PRESETS.cloudflare.name} — 最速・誤遮断少なめ`,
+              name: `${DNS_PRESETS.cloudflare.name} (${
+                DNS_PRESETS.cloudflare.v4[0]
+              }, 最速・誤遮断少なめ)`,
               value: "cloudflare",
             },
             {
-              name: `${DNS_PRESETS.quad9.name} — セキュリティ最優先`,
+              name: `${DNS_PRESETS.quad9.name} (${
+                DNS_PRESETS.quad9.v4[0]
+              }, セキュリティ最優先)`,
               value: "quad9",
             },
-            { name: DNS_PRESETS.opendns.name, value: "opendns" },
-            { name: "カスタム (IPv4 リゾルバを手入力)", value: "custom" },
+            {
+              name: `${DNS_PRESETS.opendns.name} (${
+                DNS_PRESETS.opendns.v4[0]
+              })`,
+              value: "opendns",
+            },
+            { name: "カスタム (手入力)", value: "custom" },
           ],
         });
 
         if (preset === "custom") {
           const primary = (await Input.prompt({
-            message: "プライマリ DNS (IPv4)",
+            message: "プライマリ DNS",
+            hint: "IPv4 アドレス",
             default: dns,
             validate: validateDnsInput,
           })).trim();
@@ -148,7 +158,8 @@ export async function editSettings(projectRoot: string): Promise<boolean> {
             break;
           }
           const secondary = (await Input.prompt({
-            message: "セカンダリ DNS (IPv4, 任意)",
+            message: "セカンダリ DNS",
+            hint: "IPv4・空 = プライマリと同じ値を使用",
             default: "",
             validate: validateDnsInput,
           })).trim();
@@ -181,15 +192,15 @@ export async function editSettings(projectRoot: string): Promise<boolean> {
 
       case "firewall": {
         const v = await Select.prompt({
-          message: "Firewall (egress フィルタ)",
+          message: "Firewall",
           default: firewall,
           options: [
             {
-              name: "on  — メタデータ/private 遮断 + マルウェア DNS フィルタ",
+              name: "on (メタデータ/private 遮断 + マルウェア DNS フィルタ)",
               value: "on",
             },
             {
-              name: "off — キルスイッチ (全 egress フィルタ無効)",
+              name: "off (全 egress フィルタを無効化)",
               value: "off",
             },
           ],
@@ -203,11 +214,11 @@ export async function editSettings(projectRoot: string): Promise<boolean> {
 
       case "host": {
         const v = await Select.prompt({
-          message: "host.docker.internal (ホスト連携)",
+          message: "ホスト連携 (host.docker.internal)",
           default: allowHost,
           options: [
-            { name: "on  — ホスト上のサービスに到達可", value: "on" },
-            { name: "off — ホストへの通信も遮断", value: "off" },
+            { name: "on (ホスト上のサービスに到達可)", value: "on" },
+            { name: "off (ホストへの通信も遮断)", value: "off" },
           ],
         });
         if (v !== allowHost) {
@@ -251,11 +262,11 @@ export async function editSettings(projectRoot: string): Promise<boolean> {
               ? [{ name: `現在のカスタム値を維持 (${bind})`, value: "keep" }]
               : []),
             {
-              name: "ローカルのみ — このマシンからのみ接続可 (127.0.0.1)",
+              name: "ローカルのみ (127.0.0.1)",
               value: "local",
             },
             {
-              name: "LAN 公開    — 他のマシンからも接続可 (全インターフェース)",
+              name: "LAN 公開 (全インターフェース)",
               value: "lan",
             },
           ],
@@ -278,7 +289,8 @@ export async function editSettings(projectRoot: string): Promise<boolean> {
 
       case "tz": {
         const v = (await Input.prompt({
-          message: "タイムゾーン (例: Asia/Tokyo, UTC)",
+          message: "タイムゾーン",
+          hint: "例: Asia/Tokyo, UTC",
           default: tz,
         })).trim();
         if (v && v !== tz) {

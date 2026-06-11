@@ -98,7 +98,8 @@ async function addOrUpdate(store: RemoteStore): Promise<void> {
   console.log("");
 
   const name = (await Input.prompt({
-    message: "エントリ名 (ssh <名前> で接続)",
+    message: "エントリ名",
+    hint: "ssh <エントリ名> で接続できます",
     default: "cloopy-remote",
     validate: validateRemoteName,
   })).trim();
@@ -124,7 +125,8 @@ async function addOrUpdate(store: RemoteStore): Promise<void> {
   }
 
   const hostName = (await Input.prompt({
-    message: "リモートホスト (IP または DNS 名)",
+    message: "リモートホスト",
+    hint: "IP アドレスまたは DNS 名",
     default: existing?.hostName,
     validate: validateRemoteHost,
   })).trim();
@@ -147,7 +149,8 @@ async function addOrUpdate(store: RemoteStore): Promise<void> {
     }
   }
   const identityInput = (await Input.prompt({
-    message: "秘密鍵のパス (空 = ssh の既定の鍵 / agent を使用)",
+    message: "秘密鍵のパス",
+    hint: "空 = ssh の既定の鍵 / agent を使用",
     default: defaultIdentity,
     validate: (v: string) => {
       const t = v.trim();
@@ -202,7 +205,8 @@ async function addOrUpdate(store: RemoteStore): Promise<void> {
       ),
     );
     const cont = await Confirm.prompt({
-      message: "ホスト鍵なしで登録しますか？ (初回接続時に自動で受け入れ)",
+      message: "ホスト鍵なしで登録しますか？",
+      hint: "初回接続時に自動で受け入れます",
       default: false,
     });
     if (!cont) return;
@@ -293,7 +297,7 @@ export async function manageRemotes(): Promise<void> {
 
   while (true) {
     console.log("");
-    console.log(bold(cyan("  リモート接続 (他マシンの cloopy へ)")));
+    console.log(bold(cyan("  リモート接続")));
     if (store.remotes.length === 0) {
       console.log(dim("  登録済みのエントリはありません"));
     } else {

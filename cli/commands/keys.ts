@@ -157,9 +157,9 @@ export async function manageKeys(): Promise<boolean> {
       message: "操作を選択",
       options: [
         { name: "鍵の一覧", value: "list" },
-        { name: "鍵を追加 (貼り付け)", value: "paste" },
-        { name: "鍵を追加 (ファイルから)", value: "file" },
-        { name: "鍵を追加 (GitHub から取得)", value: "github" },
+        { name: "入力して追加", value: "paste" },
+        { name: "ファイルから追加", value: "file" },
+        { name: "GitHub から追加", value: "github" },
         { name: "鍵を削除", value: "remove" },
         SEPARATOR,
         { name: "戻る", value: "back" },
@@ -187,7 +187,7 @@ export async function manageKeys(): Promise<boolean> {
 
         case "paste": {
           const input = await Input.prompt({
-            message: "公開鍵を貼り付け (1行)",
+            message: "公開鍵を貼り付け",
             validate: validatePublicKeyInput,
           });
           const r = parsePublicKey(input);
@@ -195,7 +195,8 @@ export async function manageKeys(): Promise<boolean> {
           let label = "";
           if (!r.key.comment) {
             label = (await Input.prompt({
-              message: "ラベル (一覧表示用、空でも可)",
+              message: "ラベル",
+              hint: "一覧表示用・空でも可",
               default: "",
             })).trim();
           }
@@ -207,7 +208,8 @@ export async function manageKeys(): Promise<boolean> {
 
         case "file": {
           const pathInput = (await Input.prompt({
-            message: "公開鍵ファイルのパス (.pub / authorized_keys 形式)",
+            message: "公開鍵ファイルのパス",
+            hint: ".pub / authorized_keys 形式",
           })).trim();
           if (!pathInput) break;
           let text: string;
